@@ -16,9 +16,11 @@ const VisionAssistant = () => {
   const [isListening, setIsListening] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [mode, setMode] = useState<'navigation' | 'currency'>('navigation');
+  const [isRealTimeActive, setIsRealTimeActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize camera
   const startCamera = useCallback(async () => {
@@ -110,51 +112,36 @@ const VisionAssistant = () => {
     }
   }, [mode, speak]);
 
-  // Mock analysis function (replace with actual OpenAI API call)
+  // Real OpenAI Vision API analysis
   const analyzeImage = async (imageData: string, analysisMode: string): Promise<AnalysisResult> => {
-    // This would be replaced with actual OpenAI Vision API call
-    const mockResults = {
-      navigation: [
-        {
-          type: 'obstacle' as const,
-          severity: 'warning' as const,
-          message: "Atención: Detectado escalón a 2 metros frente a usted. Cuidado al caminar.",
-          confidence: 0.85
+    try {
+      const response = await fetch('/supabase/functions/analyze-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          type: 'obstacle' as const,
-          severity: 'danger' as const,
-          message: "¡Peligro! Zanja profunda detectada directamente al frente. Deténgase inmediatamente.",
-          confidence: 0.92
-        },
-        {
-          type: 'general' as const,
-          severity: 'safe' as const,
-          message: "Camino despejado. Puede continuar con precaución normal.",
-          confidence: 0.78
-        }
-      ],
-      currency: [
-        {
-          type: 'currency' as const,
-          severity: 'warning' as const,
-          message: "Billete detectado. Características sospechosas encontradas. Posible falsificación.",
-          confidence: 0.76
-        },
-        {
-          type: 'currency' as const,
-          severity: 'safe' as const,
-          message: "Billete de 20 soles auténtico detectado. Características de seguridad verificadas.",
-          confidence: 0.94
-        }
-      ]
-    };
+        body: JSON.stringify({
+          imageData,
+          mode: analysisMode
+        })
+      });
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const results = mockResults[analysisMode as keyof typeof mockResults];
-    return results[Math.floor(Math.random() * results.length)];
+      if (!response.ok) {
+        throw new Error('Error en la respuesta del servidor');
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error calling analysis API:', error);
+      // Fallback result
+      return {
+        type: analysisMode === 'currency' ? 'currency' : 'obstacle',
+        severity: 'warning',
+        message: 'Error al conectar con el servicio de análisis. Verifique su conexión.',
+        confidence: 0.0
+      };
+    }
   };
 
   // Voice commands (mock implementation)
@@ -183,10 +170,45 @@ const VisionAssistant = () => {
     }, 3000);
   }, [captureAndAnalyze, speak]);
 
+  // Start real-time analysis
+  const startRealTimeAnalysis = useCallback(() => {
+    if (intervalRef.current) return;
+    
+    setIsRealTimeActive(true);
+    speak("Análisis en tiempo real activado");
+    
+    intervalRef.current = setInterval(() => {
+      if (!isAnalyzing) {
+        captureAndAnalyze();
+      }
+    }, 5000); // Analyze every 5 seconds
+  }, [captureAndAnalyze, isAnalyzing, speak]);
+
+  // Stop real-time analysis
+  const stopRealTimeAnalysis = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsRealTimeActive(false);
+    speak("Análisis en tiempo real desactivado");
+  }, [speak]);
+
   useEffect(() => {
     startCamera();
-    return () => stopCamera();
-  }, [startCamera, stopCamera]);
+    // Start real-time analysis automatically
+    const timer = setTimeout(() => {
+      startRealTimeAnalysis();
+    }, 2000);
+    
+    return () => {
+      stopCamera();
+      clearTimeout(timer);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [startCamera, stopCamera, startRealTimeAnalysis]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -292,15 +314,28 @@ const VisionAssistant = () => {
           )}
         </Card>
 
+        {/* Real-time Analysis Status */}
+        <div className="text-center mb-4">
+          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
+            isRealTimeActive ? 'bg-safe-zone/20 text-safe-zone' : 'bg-muted text-muted-foreground'
+          }`}>
+            <div className={`w-3 h-3 rounded-full ${
+              isRealTimeActive ? 'bg-safe-zone animate-pulse' : 'bg-muted-foreground'
+            }`}></div>
+            <span className="font-medium">
+              {isRealTimeActive ? 'Análisis en Tiempo Real Activo' : 'Análisis en Tiempo Real Inactivo'}
+            </span>
+          </div>
+        </div>
+
         {/* Control Buttons */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Button
-            onClick={captureAndAnalyze}
-            disabled={isAnalyzing}
-            className="btn-primary-accessible h-20"
+            onClick={isRealTimeActive ? stopRealTimeAnalysis : startRealTimeAnalysis}
+            className={`h-20 ${isRealTimeActive ? 'btn-warning-accessible' : 'btn-primary-accessible'}`}
           >
-            <Camera className="w-8 h-8 mb-2" />
-            {mode === 'navigation' ? 'Analizar Entorno' : 'Verificar Billete'}
+            <Eye className="w-8 h-8 mb-2" />
+            {isRealTimeActive ? 'Detener Análisis' : 'Iniciar Análisis'}
           </Button>
 
           <Button
@@ -335,10 +370,11 @@ const VisionAssistant = () => {
         <Card className="p-6 bg-muted/50">
           <h3 className="text-xl font-semibold mb-4">Instrucciones de Uso</h3>
           <div className="space-y-2 text-muted-foreground">
+            <p>• <strong>Análisis Automático:</strong> La app analiza continuamente cada 5 segundos</p>
             <p>• <strong>Navegación:</strong> Detecta obstáculos, zanjas y peligros en el camino</p>
             <p>• <strong>Billetes:</strong> Verifica la autenticidad de billetes peruanos</p>
-            <p>• <strong>Voz:</strong> Use comandos de voz para mayor accesibilidad</p>
-            <p>• <strong>Botones:</strong> Botones grandes y fáciles de encontrar</p>
+            <p>• <strong>Voz:</strong> Recibe alertas por voz automáticamente</p>
+            <p>• <strong>Tiempo Real:</strong> Sin necesidad de presionar botones</p>
           </div>
         </Card>
       </div>
