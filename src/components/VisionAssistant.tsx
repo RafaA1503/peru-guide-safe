@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Camera, Mic, MicOff, Eye, AlertTriangle, DollarSign, Volume2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AnalysisResult {
   type: 'obstacle' | 'currency' | 'general';
@@ -115,23 +116,18 @@ const VisionAssistant = () => {
   // Real OpenAI Vision API analysis
   const analyzeImage = async (imageData: string, analysisMode: string): Promise<AnalysisResult> => {
     try {
-      const response = await fetch('/supabase/functions/analyze-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('analyze-image', {
+        body: {
           imageData,
-          mode: analysisMode
-        })
+          mode: analysisMode,
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Error en la respuesta del servidor');
+      if (error) {
+        throw error;
       }
 
-      const result = await response.json();
-      return result;
+      return data as AnalysisResult;
     } catch (error) {
       console.error('Error calling analysis API:', error);
       // Fallback result
@@ -139,7 +135,7 @@ const VisionAssistant = () => {
         type: analysisMode === 'currency' ? 'currency' : 'obstacle',
         severity: 'warning',
         message: 'Error al conectar con el servicio de análisis. Verifique su conexión.',
-        confidence: 0.0
+        confidence: 0.0,
       };
     }
   };
