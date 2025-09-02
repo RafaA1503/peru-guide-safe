@@ -127,7 +127,25 @@ const VisionAssistant = () => {
         throw error;
       }
 
-      return data as AnalysisResult;
+      // Ensure we have a proper AnalysisResult object
+      let result = data;
+      
+      // If data is a string (shouldn't happen but just in case)
+      if (typeof data === 'string') {
+        try {
+          result = JSON.parse(data);
+        } catch {
+          // Fallback if parsing fails
+          result = {
+            type: analysisMode === 'currency' ? 'currency' : 'obstacle',
+            severity: 'warning',
+            message: data,
+            confidence: 0.7,
+          };
+        }
+      }
+
+      return result as AnalysisResult;
     } catch (error) {
       console.error('Error calling analysis API:', error);
       // Fallback result
