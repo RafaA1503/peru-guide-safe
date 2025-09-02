@@ -19,7 +19,6 @@ interface AnalysisResult {
 const VisionAssistant = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [mode, setMode] = useState<'navigation' | 'currency'>('navigation');
   const [isRealTimeActive, setIsRealTimeActive] = useState(false);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -37,22 +36,19 @@ const VisionAssistant = () => {
     
     if (command.includes('prender') || command.includes('encender') || command.includes('activar')) {
       if (command.includes('cámara') || command.includes('camara')) {
-        handleCameraActivation();
-        speak("Activando cámara");
+        if (!cameraActive) {
+          handleCameraActivation();
+          speak("Activando cámara");
+        }
       }
     } else if (command.includes('analizar') || command.includes('detectar')) {
       if (cameraActive) {
         captureAndAnalyze();
         speak("Analizando entorno");
       } else {
-        speak("Primero debe activar la cámara");
+        speak("Activando cámara para análisis");
+        handleCameraActivation();
       }
-    } else if (command.includes('billete') || command.includes('moneda')) {
-      setMode('currency');
-      speak("Cambiado a modo detección de billetes");
-    } else if (command.includes('navegación') || command.includes('obstáculo')) {
-      setMode('navigation');
-      speak("Cambiado a modo navegación");
     }
   }, [cameraActive]);
 
@@ -141,7 +137,7 @@ const VisionAssistant = () => {
       
       const imageData = canvas.toDataURL('image/jpeg', 0.8);
       
-      const result = await analyzeImage(imageData, mode);
+      const result = await analyzeImage(imageData);
       
       setAnalysisResult(result);
       speak(result.message);
@@ -162,15 +158,14 @@ const VisionAssistant = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [mode, speak, cameraActive]);
+  }, [speak, cameraActive]);
 
   // Real OpenAI Vision API analysis
-  const analyzeImage = async (imageData: string, analysisMode: string): Promise<AnalysisResult> => {
+  const analyzeImage = async (imageData: string): Promise<AnalysisResult> => {
     try {
       const { data, error } = await supabase.functions.invoke('analyze-image', {
         body: {
           imageData,
-          mode: analysisMode,
         },
       });
 
@@ -186,7 +181,7 @@ const VisionAssistant = () => {
           result = JSON.parse(data);
         } catch {
           result = {
-            type: analysisMode === 'currency' ? 'currency' : 'obstacle',
+            type: 'general',
             severity: 'warning',
             message: data,
             confidence: 0.7,
@@ -213,7 +208,7 @@ const VisionAssistant = () => {
     } catch (error) {
       console.error('Error calling analysis API:', error);
       return {
-        type: analysisMode === 'currency' ? 'currency' : 'obstacle',
+        type: 'general',
         severity: 'warning',
         message: 'Error al conectar con el servicio de análisis. Verifique su conexión.',
         confidence: 0.0,
@@ -245,20 +240,26 @@ const VisionAssistant = () => {
   }, []);
 
   useEffect(() => {
-    // Auto-start camera on Android after component mounts
-    if (isAndroid) {
-      setTimeout(() => {
+    // Auto-start camera on component mount
+    const initializeCamera = () => {
+      if (isAndroid) {
         setShowPermissionDialog(true);
-      }, 1000);
-    }
+      } else {
+        startCamera();
+      }
+    };
+
+    // Start camera automatically after 1 second
+    const timer = setTimeout(initializeCamera, 1000);
     
     return () => {
+      clearTimeout(timer);
       stopCamera();
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isAndroid, stopCamera]);
+  }, [isAndroid, startCamera, stopCamera]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -274,39 +275,11 @@ const VisionAssistant = () => {
         {/* Header */}
         <div className="text-center space-y-2 lg:space-y-4 mb-4 lg:mb-6">
           <h1 className="text-2xl lg:text-4xl font-bold text-foreground">
-            Asistente Visual
+            Asistente Visual Unificado
           </h1>
           <p className="text-base lg:text-xl text-muted-foreground">
-            Tu guía inteligente para navegar con seguridad
+            Detecta billetes y obstáculos automáticamente
           </p>
-        </div>
-
-        {/* Mode Toggle */}
-        <div className="flex justify-center gap-3 lg:gap-4 mb-4 lg:mb-6">
-          <Button
-            onClick={() => {
-              setMode('navigation');
-              speak("Modo navegación activado");
-            }}
-            className={`flex items-center gap-2 h-10 lg:h-12 px-4 lg:px-6 text-sm lg:text-base ${
-              mode === 'navigation' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-            }`}
-          >
-            <Eye className="w-4 h-4 lg:w-6 lg:h-6" />
-            <span className="hidden sm:inline">Navegación</span>
-          </Button>
-          <Button
-            onClick={() => {
-              setMode('currency');
-              speak("Modo detección de billetes activado");
-            }}
-            className={`flex items-center gap-2 h-10 lg:h-12 px-4 lg:px-6 text-sm lg:text-base ${
-              mode === 'currency' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-            }`}
-          >
-            <DollarSign className="w-4 h-4 lg:w-6 lg:h-6" />
-            <span className="hidden sm:inline">Billetes</span>
-          </Button>
         </div>
 
         {/* Camera Status */}
@@ -348,14 +321,8 @@ const VisionAssistant = () => {
               <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
                 <div className="text-white text-center p-4">
                   <Camera className="w-12 h-12 lg:w-16 lg:h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-base lg:text-lg mb-4">Cámara no activada</p>
-                  <Button
-                    onClick={handleCameraActivation}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                  >
-                    <Camera className="w-4 h-4 mr-2" />
-                    Activar Cámara
-                  </Button>
+                  <p className="text-base lg:text-lg mb-4">Iniciando cámara automáticamente...</p>
+                  <div className="animate-spin rounded-full h-8 w-8 lg:h-12 lg:w-12 border-b-2 border-white mx-auto"></div>
                 </div>
               </div>
             )}
@@ -409,17 +376,7 @@ const VisionAssistant = () => {
         </div>
 
         {/* Control Buttons */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6">
-          <Button
-            onClick={cameraActive ? stopCamera : handleCameraActivation}
-            className={`h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm ${
-              cameraActive ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-            }`}
-          >
-            {cameraActive ? <Square className="w-5 h-5 lg:w-6 lg:h-6 mb-1" /> : <Play className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />}
-            {cameraActive ? 'Detener' : 'Iniciar'} Cámara
-          </Button>
-
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4 mb-6">
           <Button
             onClick={isRealTimeActive ? stopRealTimeAnalysis : startRealTimeAnalysis}
             disabled={!cameraActive}
@@ -428,7 +385,7 @@ const VisionAssistant = () => {
             }`}
           >
             <Eye className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
-            {isRealTimeActive ? 'Pausar' : 'Análisis'} Auto
+            {isRealTimeActive ? 'Pausar' : 'Iniciar'} Detección
           </Button>
 
           <Button
@@ -454,10 +411,10 @@ const VisionAssistant = () => {
                 speak("No hay mensaje para repetir");
               }
             }}
-            className="h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm bg-purple-600 hover:bg-purple-700 text-white"
+            className="h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm bg-purple-600 hover:bg-purple-700 text-white sm:col-span-2 lg:col-span-1"
           >
             <Volume2 className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
-            Repetir
+            Repetir Mensaje
           </Button>
         </div>
 
@@ -465,12 +422,13 @@ const VisionAssistant = () => {
         <Card className="p-4 lg:p-6 bg-muted/50">
           <h3 className="text-lg lg:text-xl font-semibold mb-3 lg:mb-4">Instrucciones de Uso</h3>
           <div className="space-y-2 text-sm lg:text-base text-muted-foreground">
-            <p>• <strong>Activación Automática:</strong> En Android, la app solicita permisos automáticamente</p>
-            <p>• <strong>Comandos de Voz:</strong> Diga "prender cámara" para activar automáticamente</p>
-            <p>• <strong>Análisis Automático:</strong> Una vez activa, analiza cada 5 segundos</p>
-            <p>• <strong>Navegación:</strong> Detecta obstáculos, zanjas y peligros</p>
-            <p>• <strong>Billetes:</strong> Verifica autenticidad de billetes peruanos</p>
-            <p>• <strong>Alertas de Voz:</strong> Recibe notificaciones automáticas por voz</p>
+            <p>• <strong>Inicio Automático:</strong> La cámara se activa automáticamente al abrir la app</p>
+            <p>• <strong>Detección Unificada:</strong> Analiza billetes y obstáculos en una sola función</p>
+            <p>• <strong>Comandos de Voz:</strong> Diga "prender cámara" o "analizar" para controlar</p>
+            <p>• <strong>Análisis Continuo:</strong> Detecta automáticamente cada 5 segundos</p>
+            <p>• <strong>Billetes Peruanos:</strong> Verifica autenticidad cuando detecta billetes</p>
+            <p>• <strong>Navegación Segura:</strong> Alerta sobre obstáculos y peligros</p>
+            <p>• <strong>Alertas de Voz:</strong> Recibe notificaciones automáticas habladas</p>
           </div>
         </Card>
       </div>

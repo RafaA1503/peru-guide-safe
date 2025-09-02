@@ -13,53 +13,45 @@ serve(async (req) => {
   }
 
   try {
-    const { imageData, mode } = await req.json()
+    const { imageData } = await req.json()
     
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openaiApiKey) {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Prepare prompt based on mode
-    const navigationPrompt = `Eres un asistente visual para personas con discapacidad visual. Analiza esta imagen y describe ÚNICAMENTE los peligros o obstáculos que podrían afectar la seguridad al caminar. 
+    // Unified prompt for both obstacle and currency detection
+    const unifiedPrompt = `Eres un asistente visual para personas con discapacidad visual. Analiza esta imagen y:
+
+1. PRIMERO: Verifica si hay billetes peruanos en la imagen
+2. SEGUNDO: Detecta obstáculos o peligros para navegación
 
 Responde en español con este formato JSON exacto:
 {
-  "type": "obstacle",
+  "type": "obstacle|currency|general",
   "severity": "safe|warning|danger", 
-  "message": "Descripción clara y concisa del peligro o si está despejado",
+  "message": "Descripción clara y concisa",
   "confidence": número entre 0.0 y 1.0
 }
 
 DEVUELVE SOLO EL JSON, sin texto adicional ni bloques de código.
 
-Criterios:
-- "danger": zanjas, escalones altos, obstáculos peligrosos directamente al frente
-- "warning": escalones pequeños, obstáculos menores, cambios de superficie
-- "safe": camino despejado, sin obstáculos significativos
+PRIORIDADES:
+- Si detectas un billete peruano: type="currency", analiza autenticidad
+- Si no hay billetes: type="obstacle", describe peligros de navegación
+- Si no hay nada relevante: type="general", informa que está despejado
 
-Mensaje debe ser claro, directo y útil para navegación segura.`
-
-    const currencyPrompt = `Eres un experto en detección de billetes peruanos falsos. Analiza esta imagen y determina si el billete es auténtico o falso.
-
-Responde en español con este formato JSON exacto:
-{
-  "type": "currency",
-  "severity": "safe|warning|danger",
-  "message": "Descripción del análisis del billete",
-  "confidence": número entre 0.0 y 1.0
-}
-
-DEVUELVE SOLO EL JSON, sin texto adicional ni bloques de código.
-
-Criterios:
-- "safe": billete auténtico con características de seguridad correctas
-- "warning": billete con características dudosas o poco claras
+CRITERIOS BILLETES:
+- "safe": billete auténtico con características correctas
+- "warning": billete dudoso o poco claro
 - "danger": billete claramente falso
 
-Enfócate en características de seguridad visibles como textura, colores, marcas de agua, etc.`
+CRITERIOS OBSTÁCULOS:
+- "danger": zanjas, escalones altos, peligros directos
+- "warning": escalones pequeños, cambios de superficie
+- "safe": camino despejado
 
-    const prompt = mode === 'currency' ? currencyPrompt : navigationPrompt
+Mensaje debe ser claro, directo y útil.`
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -67,7 +59,7 @@ Enfócate en características de seguridad visibles como textura, colores, marca
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
+        body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
           {
@@ -75,7 +67,7 @@ Enfócate en características de seguridad visibles como textura, colores, marca
             content: [
               {
                 type: 'text',
-                text: prompt
+                text: unifiedPrompt
               },
               {
                 type: 'image_url',
@@ -112,7 +104,7 @@ Enfócate en características de seguridad visibles como textura, colores, marca
     } catch (e) {
       // Fallback if JSON parsing fails
       analysisResult = {
-        type: mode === 'currency' ? 'currency' : 'obstacle',
+        type: 'general',
         severity: 'warning',
         message: cleaned,
         confidence: 0.7
