@@ -1,9 +1,13 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Camera, Mic, MicOff, Eye, AlertTriangle, DollarSign, Volume2 } from 'lucide-react';
+import { Camera, Mic, MicOff, Eye, AlertTriangle, DollarSign, Volume2, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import CameraPermissionDialog from './CameraPermissionDialog';
+import { usePlatform } from '@/hooks/usePlatform';
+import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
 
 interface AnalysisResult {
   type: 'obstacle' | 'currency' | 'general';
@@ -14,14 +18,54 @@ interface AnalysisResult {
 
 const VisionAssistant = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [mode, setMode] = useState<'navigation' | 'currency'>('navigation');
   const [isRealTimeActive, setIsRealTimeActive] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const { isAndroid, isMobile } = usePlatform();
+
+  // Voice commands handler
+  const handleVoiceCommand = useCallback((command: string) => {
+    console.log('Comando de voz recibido:', command);
+    
+    if (command.includes('prender') || command.includes('encender') || command.includes('activar')) {
+      if (command.includes('cámara') || command.includes('camara')) {
+        handleCameraActivation();
+        speak("Activando cámara");
+      }
+    } else if (command.includes('analizar') || command.includes('detectar')) {
+      if (cameraActive) {
+        captureAndAnalyze();
+        speak("Analizando entorno");
+      } else {
+        speak("Primero debe activar la cámara");
+      }
+    } else if (command.includes('billete') || command.includes('moneda')) {
+      setMode('currency');
+      speak("Cambiado a modo detección de billetes");
+    } else if (command.includes('navegación') || command.includes('obstáculo')) {
+      setMode('navigation');
+      speak("Cambiado a modo navegación");
+    }
+  }, [cameraActive]);
+
+  const { isListening, startListening, isSupported } = useVoiceRecognition(handleVoiceCommand);
+
+  // Handle camera activation based on platform
+  const handleCameraActivation = useCallback(() => {
+    if (isAndroid) {
+      setShowPermissionDialog(true);
+    } else {
+      startCamera();
+    }
+  }, [isAndroid]);
 
   // Initialize camera
   const startCamera = useCallback(async () => {
@@ -37,15 +81,22 @@ const VisionAssistant = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
+        setCameraActive(true);
+        setShowPermissionDialog(false);
       }
       
-      // Announce camera started
-      speak("Cámara iniciada. Lista para asistir en navegación.");
+      speak("Cámara activada. Lista para asistir en navegación.");
+      
+      // Auto-start real-time analysis after 2 seconds
+      setTimeout(() => {
+        startRealTimeAnalysis();
+      }, 2000);
       
     } catch (error) {
       console.error('Error accessing camera:', error);
       toast.error('No se pudo acceder a la cámara');
       speak("Error al acceder a la cámara. Verifique los permisos.");
+      setShowPermissionDialog(false);
     }
   }, []);
 
@@ -54,7 +105,9 @@ const VisionAssistant = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
+      setCameraActive(false);
     }
+    stopRealTimeAnalysis();
   }, []);
 
   // Text-to-speech function
@@ -70,7 +123,7 @@ const VisionAssistant = () => {
 
   // Capture image and analyze
   const captureAndAnalyze = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) {
+    if (!videoRef.current || !canvasRef.current || !cameraActive) {
       toast.error('Cámara no disponible');
       return;
     }
@@ -88,13 +141,11 @@ const VisionAssistant = () => {
       
       const imageData = canvas.toDataURL('image/jpeg', 0.8);
       
-      // Simulate API call to OpenAI Vision API
       const result = await analyzeImage(imageData, mode);
       
       setAnalysisResult(result);
       speak(result.message);
       
-      // Show appropriate toast based on severity
       if (result.severity === 'danger') {
         toast.error(result.message);
       } else if (result.severity === 'warning') {
@@ -111,7 +162,7 @@ const VisionAssistant = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [mode, speak]);
+  }, [mode, speak, cameraActive]);
 
   // Real OpenAI Vision API analysis
   const analyzeImage = async (imageData: string, analysisMode: string): Promise<AnalysisResult> => {
@@ -161,7 +212,6 @@ const VisionAssistant = () => {
       return result as AnalysisResult;
     } catch (error) {
       console.error('Error calling analysis API:', error);
-      // Fallback result
       return {
         type: analysisMode === 'currency' ? 'currency' : 'obstacle',
         severity: 'warning',
@@ -171,35 +221,9 @@ const VisionAssistant = () => {
     }
   };
 
-  // Voice commands (mock implementation)
-  const startListening = useCallback(() => {
-    setIsListening(true);
-    speak("Escuchando comando de voz");
-    
-    // Mock voice recognition
-    setTimeout(() => {
-      setIsListening(false);
-      const commands = [
-        "Analizar entorno",
-        "Verificar billete",
-        "¿Qué hay frente a mí?",
-        "Cambiar a modo moneda"
-      ];
-      const randomCommand = commands[Math.floor(Math.random() * commands.length)];
-      speak(`Comando recibido: ${randomCommand}`);
-      
-      if (randomCommand.includes("billete") || randomCommand.includes("moneda")) {
-        setMode('currency');
-        speak("Cambiado a modo detección de billetes");
-      } else if (randomCommand.includes("Analizar")) {
-        captureAndAnalyze();
-      }
-    }, 3000);
-  }, [captureAndAnalyze, speak]);
-
   // Start real-time analysis
   const startRealTimeAnalysis = useCallback(() => {
-    if (intervalRef.current) return;
+    if (intervalRef.current || !cameraActive) return;
     
     setIsRealTimeActive(true);
     speak("Análisis en tiempo real activado");
@@ -208,8 +232,8 @@ const VisionAssistant = () => {
       if (!isAnalyzing) {
         captureAndAnalyze();
       }
-    }, 5000); // Analyze every 5 seconds
-  }, [captureAndAnalyze, isAnalyzing, speak]);
+    }, 5000);
+  }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
 
   // Stop real-time analysis
   const stopRealTimeAnalysis = useCallback(() => {
@@ -218,87 +242,120 @@ const VisionAssistant = () => {
       intervalRef.current = null;
     }
     setIsRealTimeActive(false);
-    speak("Análisis en tiempo real desactivado");
-  }, [speak]);
+  }, []);
 
   useEffect(() => {
-    startCamera();
-    // Start real-time analysis automatically
-    const timer = setTimeout(() => {
-      startRealTimeAnalysis();
-    }, 2000);
+    // Auto-start camera on Android after component mounts
+    if (isAndroid) {
+      setTimeout(() => {
+        setShowPermissionDialog(true);
+      }, 1000);
+    }
     
     return () => {
       stopCamera();
-      clearTimeout(timer);
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [startCamera, stopCamera, startRealTimeAnalysis]);
+  }, [isAndroid, stopCamera]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
-      case 'danger': return 'btn-danger-accessible';
-      case 'warning': return 'btn-warning-accessible';
-      default: return 'btn-safe-accessible';
+      case 'danger': return 'border-red-500 bg-red-50 text-red-800';
+      case 'warning': return 'border-yellow-500 bg-yellow-50 text-yellow-800';
+      default: return 'border-green-500 bg-green-50 text-green-800';
     }
   };
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-4 lg:py-6 max-w-6xl">
         {/* Header */}
-        <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold text-foreground">
+        <div className="text-center space-y-2 lg:space-y-4 mb-4 lg:mb-6">
+          <h1 className="text-2xl lg:text-4xl font-bold text-foreground">
             Asistente Visual
           </h1>
-          <p className="text-xl text-muted-foreground">
+          <p className="text-base lg:text-xl text-muted-foreground">
             Tu guía inteligente para navegar con seguridad
           </p>
         </div>
 
         {/* Mode Toggle */}
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-3 lg:gap-4 mb-4 lg:mb-6">
           <Button
             onClick={() => {
               setMode('navigation');
               speak("Modo navegación activado");
             }}
-            className={mode === 'navigation' ? 'btn-primary-accessible' : 'btn-accessible bg-muted text-muted-foreground'}
+            className={`flex items-center gap-2 h-10 lg:h-12 px-4 lg:px-6 text-sm lg:text-base ${
+              mode === 'navigation' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+            }`}
           >
-            <Eye className="w-6 h-6 mr-2" />
-            Navegación
+            <Eye className="w-4 h-4 lg:w-6 lg:h-6" />
+            <span className="hidden sm:inline">Navegación</span>
           </Button>
           <Button
             onClick={() => {
               setMode('currency');
               speak("Modo detección de billetes activado");
             }}
-            className={mode === 'currency' ? 'btn-primary-accessible' : 'btn-accessible bg-muted text-muted-foreground'}
+            className={`flex items-center gap-2 h-10 lg:h-12 px-4 lg:px-6 text-sm lg:text-base ${
+              mode === 'currency' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+            }`}
           >
-            <DollarSign className="w-6 h-6 mr-2" />
-            Billetes
+            <DollarSign className="w-4 h-4 lg:w-6 lg:h-6" />
+            <span className="hidden sm:inline">Billetes</span>
           </Button>
         </div>
 
+        {/* Camera Status */}
+        <div className="text-center mb-4">
+          <div className={`inline-flex items-center gap-2 px-3 lg:px-4 py-2 rounded-full text-sm lg:text-base ${
+            cameraActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+          }`}>
+            <div className={`w-2 h-2 lg:w-3 lg:h-3 rounded-full ${
+              cameraActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+            }`}></div>
+            <span className="font-medium">
+              {cameraActive ? 'Cámara Activa' : 'Cámara Inactiva'}
+            </span>
+          </div>
+        </div>
+
         {/* Camera View */}
-        <Card className="p-6 space-y-4">
+        <Card className="p-3 lg:p-6 space-y-4 mb-4 lg:mb-6">
           <div className="relative bg-black rounded-xl overflow-hidden">
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="w-full h-64 object-cover"
+              className="w-full h-48 sm:h-64 lg:h-80 object-cover"
             />
             <canvas ref={canvasRef} className="hidden" />
             
             {isAnalyzing && (
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                 <div className="text-white text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                  <p className="text-lg">Analizando imagen...</p>
+                  <div className="animate-spin rounded-full h-8 w-8 lg:h-12 lg:w-12 border-b-2 border-white mx-auto mb-2 lg:mb-4"></div>
+                  <p className="text-sm lg:text-lg">Analizando imagen...</p>
+                </div>
+              </div>
+            )}
+
+            {!cameraActive && (
+              <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
+                <div className="text-white text-center p-4">
+                  <Camera className="w-12 h-12 lg:w-16 lg:h-16 mx-auto mb-4 opacity-50" />
+                  <p className="text-base lg:text-lg mb-4">Cámara no activada</p>
+                  <Button
+                    onClick={handleCameraActivation}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    <Camera className="w-4 h-4 mr-2" />
+                    Activar Cámara
+                  </Button>
                 </div>
               </div>
             )}
@@ -306,35 +363,31 @@ const VisionAssistant = () => {
 
           {/* Analysis Result */}
           {analysisResult && (
-            <Card className={`p-4 border-2 ${
-              analysisResult.severity === 'danger' ? 'border-danger-zone bg-red-50' :
-              analysisResult.severity === 'warning' ? 'border-warning-zone bg-yellow-50' :
-              'border-safe-zone bg-green-50'
-            }`}>
+            <Card className={`p-3 lg:p-4 border-2 ${getSeverityColor(analysisResult.severity)}`}>
               <div className="flex items-start gap-3">
                 {analysisResult.severity === 'danger' && (
-                  <AlertTriangle className="w-6 h-6 text-danger-zone mt-1" />
+                  <AlertTriangle className="w-5 h-5 lg:w-6 lg:h-6 text-red-600 mt-1 flex-shrink-0" />
                 )}
                 {analysisResult.severity === 'warning' && (
-                  <AlertTriangle className="w-6 h-6 text-warning-zone mt-1" />
+                  <AlertTriangle className="w-5 h-5 lg:w-6 lg:h-6 text-yellow-600 mt-1 flex-shrink-0" />
                 )}
                 {analysisResult.severity === 'safe' && (
-                  <Eye className="w-6 h-6 text-safe-zone mt-1" />
+                  <Eye className="w-5 h-5 lg:w-6 lg:h-6 text-green-600 mt-1 flex-shrink-0" />
                 )}
-                <div className="flex-1">
-                  <p className="text-lg font-medium text-foreground mb-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm lg:text-lg font-medium break-words">
                     {analysisResult.message}
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs lg:text-sm opacity-75 mt-1">
                     Confianza: {Math.round(analysisResult.confidence * 100)}%
                   </p>
                 </div>
                 <Button
                   onClick={() => speak(analysisResult.message)}
-                  className="btn-accessible bg-primary text-primary-foreground p-2"
+                  className="bg-primary text-primary-foreground p-2 flex-shrink-0"
                   size="sm"
                 >
-                  <Volume2 className="w-4 h-4" />
+                  <Volume2 className="w-3 h-3 lg:w-4 lg:h-4" />
                 </Button>
               </div>
             </Card>
@@ -342,12 +395,12 @@ const VisionAssistant = () => {
         </Card>
 
         {/* Real-time Analysis Status */}
-        <div className="text-center mb-4">
-          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-            isRealTimeActive ? 'bg-safe-zone/20 text-safe-zone' : 'bg-muted text-muted-foreground'
+        <div className="text-center mb-4 lg:mb-6">
+          <div className={`inline-flex items-center gap-2 px-3 lg:px-4 py-2 rounded-full text-sm lg:text-base ${
+            isRealTimeActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
           }`}>
-            <div className={`w-3 h-3 rounded-full ${
-              isRealTimeActive ? 'bg-safe-zone animate-pulse' : 'bg-muted-foreground'
+            <div className={`w-2 h-2 lg:w-3 lg:h-3 rounded-full ${
+              isRealTimeActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
             }`}></div>
             <span className="font-medium">
               {isRealTimeActive ? 'Análisis en Tiempo Real Activo' : 'Análisis en Tiempo Real Inactivo'}
@@ -356,26 +409,41 @@ const VisionAssistant = () => {
         </div>
 
         {/* Control Buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6">
+          <Button
+            onClick={cameraActive ? stopCamera : handleCameraActivation}
+            className={`h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm ${
+              cameraActive ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+            }`}
+          >
+            {cameraActive ? <Square className="w-5 h-5 lg:w-6 lg:h-6 mb-1" /> : <Play className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />}
+            {cameraActive ? 'Detener' : 'Iniciar'} Cámara
+          </Button>
+
           <Button
             onClick={isRealTimeActive ? stopRealTimeAnalysis : startRealTimeAnalysis}
-            className={`h-20 ${isRealTimeActive ? 'btn-warning-accessible' : 'btn-primary-accessible'}`}
+            disabled={!cameraActive}
+            className={`h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm ${
+              isRealTimeActive ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
+            }`}
           >
-            <Eye className="w-8 h-8 mb-2" />
-            {isRealTimeActive ? 'Detener Análisis' : 'Iniciar Análisis'}
+            <Eye className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
+            {isRealTimeActive ? 'Pausar' : 'Análisis'} Auto
           </Button>
 
           <Button
             onClick={startListening}
-            disabled={isListening}
-            className={`h-20 ${isListening ? 'btn-warning-accessible' : 'btn-safe-accessible'}`}
+            disabled={isListening || !isSupported}
+            className={`h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm ${
+              isListening ? 'bg-red-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
           >
             {isListening ? (
-              <MicOff className="w-8 h-8 mb-2" />
+              <MicOff className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
             ) : (
-              <Mic className="w-8 h-8 mb-2" />
+              <Mic className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
             )}
-            {isListening ? 'Escuchando...' : 'Comando de Voz'}
+            {isListening ? 'Escuchando...' : 'Comando Voz'}
           </Button>
 
           <Button
@@ -386,25 +454,33 @@ const VisionAssistant = () => {
                 speak("No hay mensaje para repetir");
               }
             }}
-            className="btn-accessible bg-muted text-muted-foreground h-20"
+            className="h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm bg-purple-600 hover:bg-purple-700 text-white"
           >
-            <Volume2 className="w-8 h-8 mb-2" />
-            Repetir Mensaje
+            <Volume2 className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
+            Repetir
           </Button>
         </div>
 
         {/* Instructions */}
-        <Card className="p-6 bg-muted/50">
-          <h3 className="text-xl font-semibold mb-4">Instrucciones de Uso</h3>
-          <div className="space-y-2 text-muted-foreground">
-            <p>• <strong>Análisis Automático:</strong> La app analiza continuamente cada 5 segundos</p>
-            <p>• <strong>Navegación:</strong> Detecta obstáculos, zanjas y peligros en el camino</p>
-            <p>• <strong>Billetes:</strong> Verifica la autenticidad de billetes peruanos</p>
-            <p>• <strong>Voz:</strong> Recibe alertas por voz automáticamente</p>
-            <p>• <strong>Tiempo Real:</strong> Sin necesidad de presionar botones</p>
+        <Card className="p-4 lg:p-6 bg-muted/50">
+          <h3 className="text-lg lg:text-xl font-semibold mb-3 lg:mb-4">Instrucciones de Uso</h3>
+          <div className="space-y-2 text-sm lg:text-base text-muted-foreground">
+            <p>• <strong>Activación Automática:</strong> En Android, la app solicita permisos automáticamente</p>
+            <p>• <strong>Comandos de Voz:</strong> Diga "prender cámara" para activar automáticamente</p>
+            <p>• <strong>Análisis Automático:</strong> Una vez activa, analiza cada 5 segundos</p>
+            <p>• <strong>Navegación:</strong> Detecta obstáculos, zanjas y peligros</p>
+            <p>• <strong>Billetes:</strong> Verifica autenticidad de billetes peruanos</p>
+            <p>• <strong>Alertas de Voz:</strong> Recibe notificaciones automáticas por voz</p>
           </div>
         </Card>
       </div>
+
+      {/* Camera Permission Dialog */}
+      <CameraPermissionDialog
+        isOpen={showPermissionDialog}
+        onAccept={startCamera}
+        onDeny={() => setShowPermissionDialog(false)}
+      />
     </div>
   );
 };
