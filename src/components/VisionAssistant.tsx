@@ -127,21 +127,34 @@ const VisionAssistant = () => {
         throw error;
       }
 
-      // Ensure we have a proper AnalysisResult object
-      let result = data;
+      // Ensure we have a proper AnalysisResult object and normalize message
+      let result: any = data;
       
-      // If data is a string (shouldn't happen but just in case)
       if (typeof data === 'string') {
         try {
           result = JSON.parse(data);
         } catch {
-          // Fallback if parsing fails
           result = {
             type: analysisMode === 'currency' ? 'currency' : 'obstacle',
             severity: 'warning',
             message: data,
             confidence: 0.7,
           };
+        }
+      }
+
+      if (result && typeof result.message === 'string') {
+        const raw = result.message as string;
+        const cleaned = raw.replace(/```json/i, '').replace(/```/g, '').trim();
+        try {
+          const maybe = JSON.parse(cleaned);
+          if (maybe && typeof maybe.message === 'string') {
+            result = { ...result, ...maybe, message: maybe.message };
+          } else {
+            result.message = cleaned;
+          }
+        } catch {
+          result.message = cleaned;
         }
       }
 

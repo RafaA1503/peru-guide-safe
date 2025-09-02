@@ -31,6 +31,8 @@ Responde en español con este formato JSON exacto:
   "confidence": número entre 0.0 y 1.0
 }
 
+DEVUELVE SOLO EL JSON, sin texto adicional ni bloques de código.
+
 Criterios:
 - "danger": zanjas, escalones altos, obstáculos peligrosos directamente al frente
 - "warning": escalones pequeños, obstáculos menores, cambios de superficie
@@ -47,6 +49,8 @@ Responde en español con este formato JSON exacto:
   "message": "Descripción del análisis del billete",
   "confidence": número entre 0.0 y 1.0
 }
+
+DEVUELVE SOLO EL JSON, sin texto adicional ni bloques de código.
 
 Criterios:
 - "safe": billete auténtico con características de seguridad correctas
@@ -82,6 +86,7 @@ Enfócate en características de seguridad visibles como textura, colores, marca
             ]
           }
         ],
+        response_format: { type: 'json_object' },
         max_tokens: 300,
         temperature: 0.3
       })
@@ -98,16 +103,18 @@ Enfócate en características de seguridad visibles como textura, colores, marca
       throw new Error('No response from OpenAI')
     }
 
-    // Parse JSON response
+    // Parse JSON response (strip code fences if any)
     let analysisResult
+    const contentStr = typeof content === 'string' ? content : JSON.stringify(content)
+    const cleaned = contentStr.replace(/```json/i, '').replace(/```/g, '').trim()
     try {
-      analysisResult = JSON.parse(content)
+      analysisResult = JSON.parse(cleaned)
     } catch (e) {
       // Fallback if JSON parsing fails
       analysisResult = {
         type: mode === 'currency' ? 'currency' : 'obstacle',
         severity: 'warning',
-        message: content,
+        message: cleaned,
         confidence: 0.7
       }
     }
