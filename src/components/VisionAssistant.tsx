@@ -240,7 +240,7 @@ const VisionAssistant = () => {
   }, []);
 
   useEffect(() => {
-    // Auto-start camera on component mount
+    // Auto-start camera and detection on component mount
     const initializeCamera = () => {
       if (isAndroid) {
         setShowPermissionDialog(true);
@@ -249,11 +249,10 @@ const VisionAssistant = () => {
       }
     };
 
-    // Start camera automatically after 1 second
-    const timer = setTimeout(initializeCamera, 1000);
+    // Start camera automatically immediately
+    initializeCamera();
     
     return () => {
-      clearTimeout(timer);
       stopCamera();
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
