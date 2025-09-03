@@ -81,12 +81,12 @@ const VisionAssistant = () => {
         setShowPermissionDialog(false);
       }
       
-      speak("Cámara activada. Lista para asistir en navegación.");
+      speak("Cámara activada. Iniciando detección automática.");
       
-      // Auto-start real-time analysis after 2 seconds
+      // Auto-start real-time analysis immediately
       setTimeout(() => {
         startRealTimeAnalysis();
-      }, 2000);
+      }, 1000);
       
     } catch (error) {
       console.error('Error accessing camera:', error);
@@ -374,19 +374,8 @@ const VisionAssistant = () => {
           </div>
         </div>
 
-        {/* Control Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4 mb-6">
-          <Button
-            onClick={isRealTimeActive ? stopRealTimeAnalysis : startRealTimeAnalysis}
-            disabled={!cameraActive}
-            className={`h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm ${
-              isRealTimeActive ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
-            }`}
-          >
-            <Eye className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
-            {isRealTimeActive ? 'Pausar' : 'Iniciar'} Detección
-          </Button>
-
+        {/* Control Buttons - Solo comandos de voz */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4 mb-6">
           <Button
             onClick={startListening}
             disabled={isListening || !isSupported}
@@ -410,7 +399,7 @@ const VisionAssistant = () => {
                 speak("No hay mensaje para repetir");
               }
             }}
-            className="h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm bg-purple-600 hover:bg-purple-700 text-white sm:col-span-2 lg:col-span-1"
+            className="h-16 lg:h-20 flex flex-col items-center justify-center text-xs lg:text-sm bg-purple-600 hover:bg-purple-700 text-white"
           >
             <Volume2 className="w-5 h-5 lg:w-6 lg:h-6 mb-1" />
             Repetir Mensaje
@@ -421,13 +410,12 @@ const VisionAssistant = () => {
         <Card className="p-4 lg:p-6 bg-muted/50">
           <h3 className="text-lg lg:text-xl font-semibold mb-3 lg:mb-4">Instrucciones de Uso</h3>
           <div className="space-y-2 text-sm lg:text-base text-muted-foreground">
-            <p>• <strong>Inicio Automático:</strong> La cámara se activa automáticamente al abrir la app</p>
-            <p>• <strong>Detección Unificada:</strong> Analiza billetes y obstáculos en una sola función</p>
-            <p>• <strong>Comandos de Voz:</strong> Diga "prender cámara" o "analizar" para controlar</p>
-            <p>• <strong>Análisis Continuo:</strong> Detecta automáticamente cada 5 segundos</p>
-            <p>• <strong>Billetes Peruanos:</strong> Verifica autenticidad cuando detecta billetes</p>
-            <p>• <strong>Navegación Segura:</strong> Alerta sobre obstáculos y peligros</p>
-            <p>• <strong>Alertas de Voz:</strong> Recibe notificaciones automáticas habladas</p>
+            <p>• <strong>Inicio Automático:</strong> La cámara y detección se activan automáticamente al abrir la app</p>
+            <p>• <strong>Detección Automática:</strong> Analiza billetes y obstáculos cada 5 segundos sin intervención</p>
+            <p>• <strong>Comandos de Voz:</strong> Diga "prender cámara" o "analizar" para controlar por voz</p>
+            <p>• <strong>Billetes Peruanos:</strong> Identifica y verifica autenticidad automáticamente</p>
+            <p>• <strong>Navegación Segura:</strong> Alerta sobre obstáculos y peligros continuamente</p>
+            <p>• <strong>Alertas de Voz:</strong> Recibe notificaciones habladas automáticas de todo lo detectado</p>
           </div>
         </Card>
       </div>
