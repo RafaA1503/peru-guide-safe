@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import CameraPermissionDialog from './CameraPermissionDialog';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
+import { Capacitor } from '@capacitor/core';
 
 interface AnalysisResult {
   type: 'obstacle' | 'currency' | 'general';
@@ -28,7 +29,7 @@ const VisionAssistant = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { isAndroid, isMobile } = usePlatform();
+  const { isAndroid, isMobile, isNative } = usePlatform();
 
   // Voice commands handler
   const handleVoiceCommand = useCallback((command: string) => {
@@ -54,58 +55,6 @@ const VisionAssistant = () => {
 
   const { isListening, startListening, isSupported } = useVoiceRecognition(handleVoiceCommand);
 
-  // Handle camera activation based on platform
-  const handleCameraActivation = useCallback(() => {
-    if (isAndroid) {
-      setShowPermissionDialog(true);
-    } else {
-      startCamera();
-    }
-  }, [isAndroid]);
-
-  // Initialize camera
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setCameraActive(true);
-        setShowPermissionDialog(false);
-      }
-      
-      speak("Cámara activada. Iniciando detección automática.");
-      
-      // Auto-start real-time analysis immediately
-      setTimeout(() => {
-        startRealTimeAnalysis();
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-      toast.error('No se pudo acceder a la cámara');
-      speak("Error al acceder a la cámara. Verifique los permisos.");
-      setShowPermissionDialog(false);
-    }
-  }, []);
-
-  // Stop camera
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-      setCameraActive(false);
-    }
-    stopRealTimeAnalysis();
-  }, []);
-
   // Text-to-speech function
   const speak = useCallback((text: string) => {
     if ('speechSynthesis' in window) {
@@ -116,6 +65,120 @@ const VisionAssistant = () => {
       speechSynthesis.speak(utterance);
     }
   }, []);
+
+  // Stop real-time analysis
+  const stopRealTimeAnalysis = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsRealTimeActive(false);
+  }, []);
+
+  // Initialize camera with native permission handling
+  const startCamera = useCallback(async () => {
+    console.log('Intentando iniciar cámara...');
+    console.log('Plataforma:', { isAndroid, isMobile, isNative: Capacitor.isNativePlatform() });
+    
+    try {
+      // Request permissions first on native platforms
+      if (Capacitor.isNativePlatform()) {
+        console.log('Solicitando permisos de cámara en plataforma nativa...');
+        
+        // For Android, request camera permission
+        if (isAndroid) {
+          const { Camera } = await import('@capacitor/camera');
+          try {
+            // Check current permission status
+            const permissions = await Camera.checkPermissions();
+            console.log('Estado de permisos:', permissions);
+            
+            if (permissions.camera !== 'granted') {
+              console.log('Solicitando permisos de cámara...');
+              const permissionResult = await Camera.requestPermissions({ permissions: ['camera'] });
+              console.log('Resultado de permisos:', permissionResult);
+              
+              if (permissionResult.camera !== 'granted') {
+                throw new Error('Permisos de cámara denegados');
+              }
+            }
+          } catch (permError) {
+            console.error('Error con permisos de Capacitor Camera:', permError);
+            // Continue with getUserMedia as fallback
+          }
+        }
+      }
+      
+      // Standard web camera access
+      console.log('Accediendo a getUserMedia...');
+      const constraints = {
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 }
+        }
+      };
+      
+      console.log('Constraints:', constraints);
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Stream obtenido:', stream);
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+        setCameraActive(true);
+        setShowPermissionDialog(false);
+        console.log('Cámara configurada exitosamente');
+      }
+      
+      speak("Cámara activada. Iniciando detección automática.");
+      
+      // Auto-start real-time analysis immediately
+      setTimeout(() => {
+        startRealTimeAnalysis();
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error completo al acceder a cámara:', error);
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      
+      let errorMessage = 'No se pudo acceder a la cámara';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'Permisos de cámara denegados. Habilite los permisos en configuración.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No se encontró ninguna cámara en el dispositivo.';
+      } else if (error.name === 'NotSupportedError') {
+        errorMessage = 'Cámara no soportada en este navegador.';
+      }
+      
+      toast.error(errorMessage);
+      speak(errorMessage);
+      setShowPermissionDialog(false);
+    }
+  }, [isAndroid, speak]);
+
+  // Handle camera activation based on platform
+  const handleCameraActivation = useCallback(() => {
+    console.log('handleCameraActivation - Plataforma:', { isAndroid, isNative });
+    if (isNative && isAndroid) {
+      setShowPermissionDialog(true);
+    } else {
+      startCamera();
+    }
+  }, [isAndroid, isNative, startCamera]);
+
+  // Stop camera
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setCameraActive(false);
+    }
+    stopRealTimeAnalysis();
+  }, [stopRealTimeAnalysis]);
 
   // Capture image and analyze
   const captureAndAnalyze = useCallback(async () => {
@@ -159,6 +222,20 @@ const VisionAssistant = () => {
       setIsAnalyzing(false);
     }
   }, [speak, cameraActive]);
+
+  // Start real-time analysis
+  const startRealTimeAnalysis = useCallback(() => {
+    if (intervalRef.current || !cameraActive) return;
+    
+    setIsRealTimeActive(true);
+    speak("Análisis en tiempo real activado");
+    
+    intervalRef.current = setInterval(() => {
+      if (!isAnalyzing) {
+        captureAndAnalyze();
+      }
+    }, 5000);
+  }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
 
   // Real OpenAI Vision API analysis
   const analyzeImage = async (imageData: string): Promise<AnalysisResult> => {
@@ -216,49 +293,35 @@ const VisionAssistant = () => {
     }
   };
 
-  // Start real-time analysis
-  const startRealTimeAnalysis = useCallback(() => {
-    if (intervalRef.current || !cameraActive) return;
-    
-    setIsRealTimeActive(true);
-    speak("Análisis en tiempo real activado");
-    
-    intervalRef.current = setInterval(() => {
-      if (!isAnalyzing) {
-        captureAndAnalyze();
-      }
-    }, 5000);
-  }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
-
-  // Stop real-time analysis
-  const stopRealTimeAnalysis = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    setIsRealTimeActive(false);
-  }, []);
-
   useEffect(() => {
+    console.log('VisionAssistant montado');
+    console.log('Plataforma detectada:', { isAndroid, isMobile, isNative });
+    console.log('Es plataforma nativa:', Capacitor.isNativePlatform());
+    
     // Auto-start camera and detection on component mount
     const initializeCamera = () => {
-      if (isAndroid) {
+      console.log('Inicializando cámara...');
+      if (isNative && isAndroid) {
+        console.log('Mostrando diálogo de permisos para Android nativo');
         setShowPermissionDialog(true);
       } else {
+        console.log('Iniciando cámara directamente');
         startCamera();
       }
     };
 
     // Start camera automatically immediately
-    initializeCamera();
+    const timer = setTimeout(initializeCamera, 1000);
     
     return () => {
+      clearTimeout(timer);
+      console.log('Limpiando VisionAssistant...');
       stopCamera();
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isAndroid, startCamera, stopCamera]);
+  }, [isAndroid, isNative, startCamera, stopCamera]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
