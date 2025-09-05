@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Camera, Mic, MicOff, Eye, AlertTriangle, DollarSign, Volume2, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import CameraPermissionDialog from './CameraPermissionDialog';
+
 import { usePlatform } from '@/hooks/usePlatform';
 import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
 import { Capacitor } from '@capacitor/core';
