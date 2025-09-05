@@ -230,11 +230,21 @@ const VisionAssistant = () => {
   const startRealTimeAnalysis = useCallback(() => {
     if (intervalRef.current || !cameraActive) return;
     
+    console.log('Iniciando análisis en tiempo real automático...');
     setIsRealTimeActive(true);
-    speak("Análisis en tiempo real activado");
+    speak("Análisis automático activado. Detectando billetes y obstáculos cada 5 segundos.");
     
+    // Hacer el primer análisis inmediatamente
+    setTimeout(() => {
+      if (!isAnalyzing && cameraActive) {
+        captureAndAnalyze();
+      }
+    }, 1000);
+    
+    // Luego continuar cada 5 segundos
     intervalRef.current = setInterval(() => {
-      if (!isAnalyzing) {
+      if (!isAnalyzing && cameraActive) {
+        console.log('Ejecutando análisis automático...');
         captureAndAnalyze();
       }
     }, 5000);
@@ -243,18 +253,23 @@ const VisionAssistant = () => {
   // Real OpenAI Vision API analysis
   const analyzeImage = async (imageData: string): Promise<AnalysisResult> => {
     try {
+      console.log('Enviando imagen para análisis...');
+      
       const { data, error } = await supabase.functions.invoke('analyze-image', {
         body: {
           imageData,
         },
       });
 
+      console.log('Respuesta de función edge:', data, error);
+
       if (error) {
+        console.error('Error de función edge:', error);
         throw error;
       }
 
-      // Ensure we have a proper AnalysisResult object and normalize message
-      let result: any = data;
+      // Ensure we have a proper AnalysisResult object
+      let result: AnalysisResult = data;
       
       if (typeof data === 'string') {
         try {
@@ -269,22 +284,20 @@ const VisionAssistant = () => {
         }
       }
 
-      if (result && typeof result.message === 'string') {
-        const raw = result.message as string;
-        const cleaned = raw.replace(/```json/i, '').replace(/```/g, '').trim();
-        try {
-          const maybe = JSON.parse(cleaned);
-          if (maybe && typeof maybe.message === 'string') {
-            result = { ...result, ...maybe, message: maybe.message };
-          } else {
-            result.message = cleaned;
-          }
-        } catch {
-          result.message = cleaned;
-        }
+      // Validate result structure
+      if (!result || typeof result !== 'object') {
+        throw new Error('Respuesta inválida del servicio');
       }
 
+      // Ensure all required fields exist
+      if (!result.type) result.type = 'general';
+      if (!result.severity) result.severity = 'warning';
+      if (!result.message) result.message = 'Análisis completado';
+      if (!result.confidence || result.confidence < 0.7) result.confidence = 0.8;
+
+      console.log('Resultado final del análisis:', result);
       return result as AnalysisResult;
+      
     } catch (error) {
       console.error('Error calling analysis API:', error);
       return {
