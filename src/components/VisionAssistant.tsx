@@ -147,11 +147,14 @@ const VisionAssistant = () => {
       
       let errorMessage = 'No se pudo acceder a la cámara';
       
-      if (error.name === 'NotAllowedError') {
+      if ((error as any).name === 'NotAllowedError') {
         errorMessage = 'Permisos de cámara denegados. Habilite los permisos en configuración.';
-      } else if (error.name === 'NotFoundError') {
+        if (isMobile) {
+          setShowPermissionDialog(true);
+        }
+      } else if ((error as any).name === 'NotFoundError') {
         errorMessage = 'No se encontró ninguna cámara en el dispositivo.';
-      } else if (error.name === 'NotSupportedError') {
+      } else if ((error as any).name === 'NotSupportedError') {
         errorMessage = 'Cámara no soportada en este navegador.';
       }
       
@@ -310,11 +313,9 @@ const VisionAssistant = () => {
       }
     };
 
-    // Start camera automatically immediately
-    const timer = setTimeout(initializeCamera, 1000);
+    initializeCamera();
     
     return () => {
-      clearTimeout(timer);
       console.log('Limpiando VisionAssistant...');
       stopCamera();
       if (intervalRef.current) {
