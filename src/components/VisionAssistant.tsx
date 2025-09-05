@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Camera, Mic, MicOff, Eye, AlertTriangle, DollarSign, Volume2, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import CameraPermissionDialog from './CameraPermissionDialog';
 
 import { usePlatform } from '@/hooks/usePlatform';
 import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
@@ -21,6 +22,7 @@ const VisionAssistant = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isRealTimeActive, setIsRealTimeActive] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -127,6 +129,7 @@ const VisionAssistant = () => {
           videoRef.current.srcObject = stream;
           streamRef.current = stream;
           setCameraActive(true);
+          setShowPermissionDialog(false);
           console.log('Cámara configurada exitosamente');
         }
       
@@ -160,8 +163,12 @@ const VisionAssistant = () => {
   // Handle camera activation based on platform
   const handleCameraActivation = useCallback(() => {
     console.log('handleCameraActivation - Plataforma:', { isAndroid, isNative });
-    startCamera();
-  }, [startCamera]);
+    if (isMobile) {
+      setShowPermissionDialog(true);
+    } else {
+      startCamera();
+    }
+  }, [isMobile, startCamera]);
 
   // Stop camera
   const stopCamera = useCallback(() => {
@@ -294,8 +301,13 @@ const VisionAssistant = () => {
     // Auto-start camera and detection on component mount
     const initializeCamera = () => {
       console.log('Inicializando cámara...');
-      console.log('Iniciando cámara directamente');
-      startCamera();
+      if (isMobile) {
+        console.log('Mostrando diálogo de permisos para dispositivo móvil');
+        setShowPermissionDialog(true);
+      } else {
+        console.log('Iniciando cámara directamente');
+        startCamera();
+      }
     };
 
     // Start camera automatically immediately
@@ -470,6 +482,13 @@ const VisionAssistant = () => {
           </div>
         </Card>
       </div>
+
+      {/* Camera Permission Dialog */}
+      <CameraPermissionDialog
+        isOpen={showPermissionDialog}
+        onAccept={startCamera}
+        onDeny={() => setShowPermissionDialog(false)}
+      />
     </div>
   );
 };
