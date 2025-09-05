@@ -86,27 +86,24 @@ const VisionAssistant = () => {
       if (Capacitor.isNativePlatform()) {
         console.log('Solicitando permisos de cámara en plataforma nativa...');
         
-        // For Android, request camera permission
-        if (isAndroid) {
-          const { Camera } = await import('@capacitor/camera');
-          try {
-            // Check current permission status
-            const permissions = await Camera.checkPermissions();
-            console.log('Estado de permisos:', permissions);
+        const { Camera } = await import('@capacitor/camera');
+        try {
+          // Check current permission status
+          const permissions = await Camera.checkPermissions();
+          console.log('Estado de permisos:', permissions);
+          
+          if (permissions.camera !== 'granted') {
+            console.log('Solicitando permisos de cámara...');
+            const permissionResult = await Camera.requestPermissions({ permissions: ['camera'] });
+            console.log('Resultado de permisos:', permissionResult);
             
-            if (permissions.camera !== 'granted') {
-              console.log('Solicitando permisos de cámara...');
-              const permissionResult = await Camera.requestPermissions({ permissions: ['camera'] });
-              console.log('Resultado de permisos:', permissionResult);
-              
-              if (permissionResult.camera !== 'granted') {
-                throw new Error('Permisos de cámara denegados');
-              }
+            if (permissionResult.camera !== 'granted') {
+              throw new Error('Permisos de cámara denegados por el usuario');
             }
-          } catch (permError) {
-            console.error('Error con permisos de Capacitor Camera:', permError);
-            // Continue with getUserMedia as fallback
           }
+        } catch (permError) {
+          console.error('Error con permisos de Capacitor Camera:', permError);
+          throw permError;
         }
       }
       
@@ -125,13 +122,13 @@ const VisionAssistant = () => {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('Stream obtenido:', stream);
       
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          streamRef.current = stream;
-          setCameraActive(true);
-          setShowPermissionDialog(false);
-          console.log('Cámara configurada exitosamente');
-        }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+        setCameraActive(true);
+        setShowPermissionDialog(false);
+        console.log('Cámara configurada exitosamente');
+      }
       
       speak("Cámara activada. Iniciando detección automática.");
       
@@ -142,15 +139,18 @@ const VisionAssistant = () => {
       
     } catch (error) {
       console.error('Error completo al acceder a cámara:', error);
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
+      console.error('Error name:', (error as any).name);
+      console.error('Error message:', (error as any).message);
       
       let errorMessage = 'No se pudo acceder a la cámara';
       
-      if ((error as any).name === 'NotAllowedError') {
-        errorMessage = 'Permisos de cámara denegados. Habilite los permisos en configuración.';
+      if ((error as any).name === 'NotAllowedError' || (error as any).message?.includes('denegados')) {
+        errorMessage = 'Permisos de cámara denegados. Por favor, acepte los permisos cuando se los solicite.';
+        // En móviles, mostrar el diálogo nuevamente para que puedan intentar otra vez
         if (isMobile) {
-          setShowPermissionDialog(true);
+          setTimeout(() => {
+            setShowPermissionDialog(true);
+          }, 2000);
         }
       } else if ((error as any).name === 'NotFoundError') {
         errorMessage = 'No se encontró ninguna cámara en el dispositivo.';
@@ -161,7 +161,7 @@ const VisionAssistant = () => {
       toast.error(errorMessage);
       speak(errorMessage);
     }
-  }, [isAndroid, speak]);
+  }, [isAndroid, isMobile, speak]);
 
   // Handle camera activation based on platform
   const handleCameraActivation = useCallback(() => {
