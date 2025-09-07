@@ -63,7 +63,7 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
     console.log('Enviando solicitud a OpenAI API con gpt-4o-mini...')
     
     let retries = 0
-    const maxRetries = 2
+    const maxRetries = 4
     let response
     
     while (retries <= maxRetries) {
@@ -187,15 +187,20 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
 
   } catch (error) {
     console.error('Error en analyze-image:', error)
+    const errMsg = typeof error === 'string' ? error : (error as Error)?.message || ''
+    const isRateLimit = errMsg.includes('429') || errMsg.includes('rate_limit_exceeded') || errMsg.toLowerCase().includes('rate limit')
+    const analysisResult = {
+      type: 'general',
+      severity: 'warning',
+      message: isRateLimit
+        ? 'Demasiadas solicitudes al servicio de análisis. Espera unos segundos e inténtalo de nuevo.'
+        : 'No se pudo analizar la imagen en este momento. Intente nuevamente.',
+      confidence: 0.0
+    }
     return new Response(
-      JSON.stringify({ 
-        type: 'general',
-        severity: 'warning',
-        message: 'Error al conectar con el servicio de análisis. Verifique su conexión.',
-        confidence: 0.0
-      }),
+      JSON.stringify(analysisResult),
       { 
-        status: 500,
+        status: 200,
         headers: { 
           ...corsHeaders, 
           'Content-Type': 'application/json' 
