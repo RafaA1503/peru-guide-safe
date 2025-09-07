@@ -337,6 +337,30 @@ const VisionAssistant = () => {
     };
   }, [isAndroid, isNative, startCamera, stopCamera]);
 
+  // Auto-start realtime analysis when camera becomes active
+  useEffect(() => {
+    if (cameraActive && !isRealTimeActive) {
+      console.log('Auto-iniciando análisis en tiempo real al activar cámara...');
+      startRealTimeAnalysis();
+    }
+  }, [cameraActive, isRealTimeActive, startRealTimeAnalysis]);
+
+  // Also start when video actually begins playing (extra safety on some browsers)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onPlaying = () => {
+      if (cameraActive && !isRealTimeActive) {
+        console.log('Video en reproducción, iniciando análisis en tiempo real...');
+        startRealTimeAnalysis();
+      }
+    };
+    video.addEventListener('playing', onPlaying);
+    return () => {
+      video.removeEventListener('playing', onPlaying);
+    };
+  }, [cameraActive, isRealTimeActive, startRealTimeAnalysis]);
+
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'danger': return 'border-red-500 bg-red-50 text-red-800';
