@@ -60,42 +60,69 @@ CRITERIOS DE SEVERIDAD:
 
 MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Poste a 1 metro" o "Billete de 50 soles auténtico"`
 
-    console.log('Enviando solicitud a OpenAI API...')
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'user',
-            content: [
+    console.log('Enviando solicitud a OpenAI API con gpt-5-nano...')
+    
+    let retries = 0
+    const maxRetries = 2
+    let response
+    
+    while (retries <= maxRetries) {
+      try {
+        response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-5-nano-2025-08-07',
+            messages: [
               {
-                type: 'text',
-                text: unifiedPrompt
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageData
-                }
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: unifiedPrompt
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: imageData
+                    }
+                  }
+                ]
               }
-            ]
-          }
-        ],
-        response_format: { type: 'json_object' },
-        max_tokens: 400,
-        temperature: 0.1
-      })
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`Error de OpenAI API: ${response.status} - ${errorText}`)
-      throw new Error(`OpenAI API error: ${response.status}`)
+            ],
+            response_format: { type: 'json_object' },
+            max_completion_tokens: 150
+          })
+        })
+        
+        if (response.ok) {
+          break // Salir del loop si la respuesta es exitosa
+        } else if (response.status === 429 && retries < maxRetries) {
+          // Rate limit - esperar y reintentar
+          const waitTime = Math.pow(2, retries) * 1000 // Backoff exponencial
+          console.log(`Rate limit alcanzado, esperando ${waitTime}ms antes de reintentar...`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+          retries++
+          continue
+        } else {
+          // Otro error, lanzar excepción
+          const errorText = await response.text()
+          console.error(`Error de OpenAI API: ${response.status} - ${errorText}`)
+          throw new Error(`OpenAI API error: ${response.status}`)
+        }
+      } catch (fetchError) {
+        if (retries < maxRetries) {
+          console.log(`Error de red, reintentando en ${1000 * (retries + 1)}ms...`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retries + 1)))
+          retries++
+          continue
+        } else {
+          throw fetchError
+        }
+      }
     }
 
     const openaiResult = await response.json()
