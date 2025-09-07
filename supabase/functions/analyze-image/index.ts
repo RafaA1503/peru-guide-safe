@@ -18,7 +18,16 @@ serve(async (req) => {
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openaiApiKey) {
       console.error('OpenAI API key no configurado')
-      throw new Error('OpenAI API key not configured')
+      const analysisResult = {
+        type: 'general',
+        severity: 'warning',
+        message: 'Servicio de análisis no configurado. Falta la API key.',
+        confidence: 0.0
+      }
+      return new Response(
+        JSON.stringify(analysisResult),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
     // Prompt optimizado para análisis en tiempo real con enfoque en seguridad
@@ -60,7 +69,7 @@ CRITERIOS DE SEVERIDAD:
 
 MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Poste a 1 metro" o "Billete de 50 soles auténtico"`
 
-    console.log('Enviando solicitud a OpenAI API con gpt-4o-mini...')
+    console.log('Enviando solicitud a OpenAI API con gpt-5-mini...')
     
     let retries = 0
     const maxRetries = 4
@@ -75,7 +84,7 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
             'Content-Type': 'application/json',
           },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-5-mini-2025-08-07',
               messages: [
                 {
                   role: 'user',
@@ -94,8 +103,7 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
                 }
               ],
               response_format: { type: 'json_object' },
-              max_tokens: 150,
-              temperature: 0.2
+              max_completion_tokens: 120
             })
         })
         

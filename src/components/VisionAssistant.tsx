@@ -29,6 +29,7 @@ const VisionAssistant = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const startRealTimeAnalysisRef = useRef<() => void>(() => {});
 
   const { isAndroid, isMobile, isNative } = usePlatform();
 
@@ -134,7 +135,7 @@ const VisionAssistant = () => {
       
       // Auto-start real-time analysis immediately
       setTimeout(() => {
-        startRealTimeAnalysis();
+        startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
       }, 1000);
       
     } catch (error) {
@@ -197,16 +198,42 @@ const VisionAssistant = () => {
       const video = videoRef.current;
       const context = canvas.getContext('2d')!;
       
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0);
+      // Downscale to reduce payload and rate limits
+      const maxW = 640, maxH = 640;
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 720;
+      const ratio = Math.min(maxW / vw, maxH / vh);
+      const tw = Math.max(1, Math.round(vw * ratio));
+      const th = Math.max(1, Math.round(vh * ratio));
+      canvas.width = tw;
+      canvas.height = th;
+      context.drawImage(video, 0, 0, tw, th);
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      const imageData = canvas.toDataURL('image/jpeg', 0.6);
       
       const result = await analyzeImage(imageData);
       
       setAnalysisResult(result);
       speak(result.message);
+      
+      // If rate limited or transient error, pause and resume automatically
+      if (
+        result.confidence === 0 ||
+        /Demasiadas solicitudes|No se pudo analizar|Error al conectar/i.test(result.message)
+      ) {
+        console.log('Pausa breve por límite/ocupación del servicio (3s)');
+        toast.message('Servicio ocupado, reintentando en 3s');
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        setIsRealTimeActive(true);
+        setTimeout(() => {
+          if (cameraActive && !intervalRef.current) {
+            startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
+          }
+        }, 3000);
+      }
       
       if (result.severity === 'danger') {
         toast.error(result.message);
@@ -249,6 +276,11 @@ const VisionAssistant = () => {
       }
     }, 5000);
   }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
+
+  // Mantener una referencia actualizada a la función
+  useEffect(() => {
+    startRealTimeAnalysisRef.current = startRealTimeAnalysis;
+  }, [startRealTimeAnalysis]);
 
   // Real OpenAI Vision API analysis
   const analyzeImage = async (imageData: string): Promise<AnalysisResult> => {
@@ -303,7 +335,7 @@ const VisionAssistant = () => {
       return {
         type: 'general',
         severity: 'warning',
-        message: 'Error al conectar con el servicio de análisis. Verifique su conexión.',
+        message: 'Servicio de análisis temporalmente ocupado. Reintentando...',
         confidence: 0.0,
       };
     }
