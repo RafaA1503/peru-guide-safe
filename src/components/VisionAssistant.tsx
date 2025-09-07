@@ -232,22 +232,22 @@ const VisionAssistant = () => {
     
     console.log('Iniciando análisis en tiempo real automático...');
     setIsRealTimeActive(true);
-    speak("Análisis automático activado. Detectando billetes y obstáculos cada 5 segundos.");
+    speak("Análisis automático activado. Detectando peligros, billetes y obstáculos continuamente.");
     
     // Hacer el primer análisis inmediatamente
     setTimeout(() => {
       if (!isAnalyzing && cameraActive) {
         captureAndAnalyze();
       }
-    }, 1000);
+    }, 500);
     
-    // Luego continuar cada 5 segundos
+    // Análisis más frecuente cada 3 segundos para mejor detección de peligros
     intervalRef.current = setInterval(() => {
       if (!isAnalyzing && cameraActive) {
-        console.log('Ejecutando análisis automático...');
+        console.log('Ejecutando análisis automático en tiempo real...');
         captureAndAnalyze();
       }
-    }, 5000);
+    }, 3000);
   }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
 
   // Real OpenAI Vision API analysis
