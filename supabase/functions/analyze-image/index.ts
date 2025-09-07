@@ -60,7 +60,7 @@ CRITERIOS DE SEVERIDAD:
 
 MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Poste a 1 metro" o "Billete de 50 soles auténtico"`
 
-    console.log('Enviando solicitud a OpenAI API con gpt-5-nano...')
+    console.log('Enviando solicitud a OpenAI API con gpt-4o-mini...')
     
     let retries = 0
     const maxRetries = 2
@@ -74,28 +74,29 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
             'Authorization': `Bearer ${openaiApiKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            model: 'gpt-5-nano-2025-08-07',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: unifiedPrompt
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: {
-                      url: imageData
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: unifiedPrompt
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: imageData
+                      }
                     }
-                  }
-                ]
-              }
-            ],
-            response_format: { type: 'json_object' },
-            max_completion_tokens: 150
-          })
+                  ]
+                }
+              ],
+              response_format: { type: 'json_object' },
+              max_tokens: 150,
+              temperature: 0.2
+            })
         })
         
         if (response.ok) {
@@ -131,8 +132,17 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
     const content = openaiResult.choices[0]?.message?.content
 
     if (!content) {
-      console.error('No hay contenido en la respuesta de OpenAI')
-      throw new Error('No response from OpenAI')
+      console.error('No hay contenido en la respuesta de OpenAI; usando fallback')
+      const analysisResult = {
+        type: 'general',
+        severity: 'warning',
+        message: 'No se pudo analizar la imagen correctamente. Intente nuevamente.',
+        confidence: 0.7
+      }
+      return new Response(
+        JSON.stringify(analysisResult),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
     // Parse JSON response
