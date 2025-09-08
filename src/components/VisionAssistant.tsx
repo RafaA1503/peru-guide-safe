@@ -451,10 +451,13 @@ const VisionAssistant = () => {
 
             {!cameraActive && (
               <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
-                <div className="text-white text-center p-4">
-                  <Camera className="w-12 h-12 lg:w-16 lg:h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-base lg:text-lg mb-4">Iniciando cámara automáticamente...</p>
-                  <div className="animate-spin rounded-full h-8 w-8 lg:h-12 lg:w-12 border-b-2 border-white mx-auto"></div>
+                <div className="text-white text-center p-4 space-y-4">
+                  <Camera className="w-12 h-12 lg:w-16 lg:h-16 mx-auto opacity-60" />
+                  <p className="text-base lg:text-lg">Necesitamos tu permiso para usar la cámara</p>
+                  <Button onClick={handleCameraActivation} className="bg-primary text-primary-foreground hover:bg-primary/90">
+                    Activar cámara
+                  </Button>
+                  <p className="text-xs lg:text-sm opacity-70">Si no ves el prompt, toca el botón para reintentar</p>
                 </div>
               </div>
             )}
