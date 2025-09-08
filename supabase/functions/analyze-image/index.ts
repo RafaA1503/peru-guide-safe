@@ -83,28 +83,29 @@ MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Po
             'Authorization': `Bearer ${openaiApiKey}`,
             'Content-Type': 'application/json',
           },
-            body: JSON.stringify({
-              model: 'gpt-5-mini-2025-08-07',
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'text',
-                      text: unifiedPrompt
-                    },
-                    {
-                      type: 'image_url',
-                      image_url: {
-                        url: imageData
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  {
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'text',
+                        text: unifiedPrompt
+                      },
+                      {
+                        type: 'image_url',
+                        image_url: {
+                          url: imageData
+                        }
                       }
-                    }
-                  ]
-                }
-              ],
-              response_format: { type: 'json_object' },
-              max_completion_tokens: 120
-            })
+                    ]
+                  }
+                ],
+                response_format: { type: 'json_object' },
+                max_tokens: 200,
+                temperature: 0
+              })
         })
         
         if (response.ok) {
