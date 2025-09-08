@@ -129,6 +129,11 @@ const VisionAssistant = () => {
         setCameraActive(true);
         setShowPermissionDialog(false);
         console.log('Cámara configurada exitosamente');
+        try {
+          await videoRef.current.play();
+        } catch (e) {
+          console.warn('No se pudo iniciar reproducción automática del video:', e);
+        }
       }
       
       speak("Cámara activada. Iniciando detección automática.");
@@ -346,17 +351,12 @@ const VisionAssistant = () => {
     console.log('Plataforma detectada:', { isAndroid, isMobile, isNative });
     console.log('Es plataforma nativa:', Capacitor.isNativePlatform());
     
-    // Auto-start camera and detection on component mount
-    const initializeCamera = () => {
-      console.log('Inicializando cámara...');
-      if (isMobile) {
-        console.log('Mostrando diálogo de permisos para dispositivo móvil');
-        setShowPermissionDialog(true);
-      } else {
-        console.log('Iniciando cámara directamente');
+      // Auto-start camera and detection on component mount
+      const initializeCamera = () => {
+        console.log('Inicializando cámara...');
+        console.log('Intentando iniciar cámara automáticamente en cualquier plataforma');
         startCamera();
-      }
-    };
+      };
 
     initializeCamera();
     
