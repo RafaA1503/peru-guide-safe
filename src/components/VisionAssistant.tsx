@@ -406,11 +406,16 @@ const VisionAssistant = () => {
       <div className="container mx-auto px-4 py-4 lg:py-6 max-w-6xl">
         {/* Header */}
         <div className="text-center space-y-2 lg:space-y-4 mb-4 lg:mb-6">
-          <h1 className="text-2xl lg:text-4xl font-bold text-foreground">
-            Asistente Visual Unificado
-          </h1>
+          <div className="inline-flex items-center gap-3 mb-2">
+            <div className="w-12 h-12 bg-gradient-to-r from-primary to-primary/80 rounded-full flex items-center justify-center">
+              <Eye className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <h1 className="text-3xl lg:text-5xl font-bold bg-gradient-to-r from-primary via-primary/80 to-secondary bg-clip-text text-transparent">
+              aelo
+            </h1>
+          </div>
           <p className="text-base lg:text-xl text-muted-foreground">
-            Detecta billetes y obstáculos automáticamente
+            Asistente Visual Inteligente - Detecta obstáculos y billetes automáticamente
           </p>
         </div>
 
