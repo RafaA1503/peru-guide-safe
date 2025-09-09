@@ -111,19 +111,33 @@ const VisionAssistant = () => {
       // Standard web camera access
       console.log('Accediendo a getUserMedia...');
       const constraints = {
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 }
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      } as MediaStreamConstraints;
+
+      console.log('Constraints (intent):', constraints);
+
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (primaryErr) {
+        console.warn('Fallo al obtener stream con constraints preferidos, reintentando con básicos...', primaryErr);
+        try {
+          const fallbackConstraints: MediaStreamConstraints = { video: true };
+          stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          console.log('Stream obtenido con constraints básicos.');
+        } catch (fallbackErr) {
+          console.error('Fallo también con constraints básicos:', fallbackErr);
+          throw fallbackErr;
         }
-      };
-      
-      console.log('Constraints:', constraints);
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      }
+
       console.log('Stream obtenido:', stream);
       
-      if (videoRef.current) {
+      if (videoRef.current && stream) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         setCameraActive(true);
@@ -351,12 +365,18 @@ const VisionAssistant = () => {
     console.log('Plataforma detectada:', { isAndroid, isMobile, isNative });
     console.log('Es plataforma nativa:', Capacitor.isNativePlatform());
     
-      // Auto-start camera and detection on component mount
-      const initializeCamera = () => {
-        console.log('Inicializando cámara...');
-        console.log('Intentando iniciar cámara automáticamente en cualquier plataforma');
+    // Auto-start cámara solo en escritorio/navegador.
+    // En móviles, esperamos una interacción del usuario para evitar NotAllowedError.
+    const initializeCamera = () => {
+      console.log('Inicializando cámara...');
+      if (!isMobile) {
+        console.log('Escritorio/navegador: iniciando cámara automáticamente');
         startCamera();
-      };
+      } else {
+        console.log('Móvil: esperando interacción del usuario para solicitar cámara');
+        setShowPermissionDialog(true);
+      }
+    };
 
     initializeCamera();
     
@@ -367,7 +387,7 @@ const VisionAssistant = () => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isAndroid, isNative, startCamera, stopCamera]);
+  }, [isAndroid, isNative, isMobile, startCamera, stopCamera]);
 
   // Auto-start realtime analysis when camera becomes active
   useEffect(() => {
