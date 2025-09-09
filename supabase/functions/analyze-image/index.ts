@@ -30,7 +30,7 @@ serve(async (req) => {
       )
     }
 
-    // Prompt optimizado para análisis en tiempo real con enfoque en seguridad
+    // Prompt optimizado para análisis en tiempo real con detección de objetos
     const unifiedPrompt = `Eres un asistente visual para personas con discapacidad visual. Analiza esta imagen EN TIEMPO REAL para detectar:
 
 PRIORIDAD MÁXIMA - PELIGROS INMEDIATOS:
@@ -54,11 +54,18 @@ PRIORIDAD MÁXIMA - PELIGROS INMEDIATOS:
    - Verifica autenticidad por colores y textura visible
    - ALERTA si detectas características falsas
 
+4. DETECCIÓN GENERAL DE OBJETOS:
+   - Identifica y nombra los objetos principales visibles
+   - Menciona personas, animales, vehículos
+   - Describe muebles, electrodomésticos, herramientas
+   - Identifica alimentos, bebidas, productos
+   - Señala elementos arquitectónicos (puertas, ventanas, escaleras)
+
 Responde ÚNICAMENTE con este JSON:
 {
-  "type": "obstacle|currency|general",
+  "type": "obstacle|currency|general|objects",
   "severity": "safe|warning|danger", 
-  "message": "Descripción CLARA del peligro o situación",
+  "message": "Descripción CLARA del peligro, objetos o situación",
   "confidence": número 0.7-1.0
 }
 
@@ -67,7 +74,13 @@ CRITERIOS DE SEVERIDAD:
 - "warning": Obstáculos menores, aglomeraciones, billetes dudosos
 - "safe": Camino despejado, billetes auténticos, entorno normal
 
-MENSAJE DEBE SER DIRECTO: "PELIGRO: Escalón de 20cm hacia abajo" o "CUIDADO: Poste a 1 metro" o "Billete de 50 soles auténtico"`
+EJEMPLOS DE MENSAJES:
+- "PELIGRO: Escalón de 20cm hacia abajo"
+- "CUIDADO: Poste a 1 metro adelante"
+- "Billete de 50 soles auténtico"
+- "Veo una mesa de madera, dos sillas y una taza sobre ella"
+- "Hay una persona caminando, un perro pequeño y un auto estacionado"
+- "Detecta: celular, llaves, cartera y una botella de agua"`
 
     console.log('Enviando solicitud a OpenAI API con gpt-5-mini...')
     
