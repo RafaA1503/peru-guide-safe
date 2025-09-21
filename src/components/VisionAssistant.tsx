@@ -18,18 +18,31 @@ interface AnalysisResult {
   confidence: number;
 }
 
+interface MotionDetection {
+  isMoving: boolean;
+  movementLevel: number;
+  lastFrameData: ImageData | null;
+}
+
 const VisionAssistant = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isRealTimeActive, setIsRealTimeActive] = useState(false);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [motionDetected, setMotionDetected] = useState(false);
+  const [analysisQueue, setAnalysisQueue] = useState<number[]>([]);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const startRealTimeAnalysisRef = useRef<() => void>(() => {});
+  const lastFrameRef = useRef<ImageData | null>(null);
+  const motionDetectionRef = useRef<NodeJS.Timeout | null>(null);
+  const analysisQueueRef = useRef<ImageData[]>([]);
+  const lastAnalysisTime = useRef<number>(0);
+  const processingAnalysis = useRef<boolean>(false);
 
   const { isAndroid, isMobile, isNative } = usePlatform();
 
@@ -68,13 +81,102 @@ const VisionAssistant = () => {
     }
   }, []);
 
+  // Detectar movimiento en tiempo real
+  const detectMotion = useCallback((currentFrame: ImageData) => {
+    if (!lastFrameRef.current) {
+      lastFrameRef.current = currentFrame;
+      return false;
+    }
+
+    const lastFrame = lastFrameRef.current;
+    const threshold = 30; // Sensibilidad de movimiento
+    let totalDiff = 0;
+    const sampleStep = 4; // Analizar cada 4to pixel para velocidad
+
+    for (let i = 0; i < currentFrame.data.length; i += sampleStep * 4) {
+      const rDiff = Math.abs(currentFrame.data[i] - lastFrame.data[i]);
+      const gDiff = Math.abs(currentFrame.data[i + 1] - lastFrame.data[i + 1]);
+      const bDiff = Math.abs(currentFrame.data[i + 2] - lastFrame.data[i + 2]);
+      totalDiff += (rDiff + gDiff + bDiff) / 3;
+    }
+
+    const avgDiff = totalDiff / (currentFrame.data.length / (sampleStep * 4));
+    const isMoving = avgDiff > threshold;
+
+    if (isMoving) {
+      lastFrameRef.current = currentFrame;
+    }
+
+    return isMoving;
+  }, []);
+
+  // Capturar frame para detección de movimiento
+  const captureFrameForMotion = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !cameraActive) return;
+
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    const context = canvas.getContext('2d')!;
+
+    // Usar resolución muy baja para detección de movimiento (más rápido)
+    canvas.width = 160;
+    canvas.height = 120;
+    context.drawImage(video, 0, 0, 160, 120);
+    
+    const frameData = context.getImageData(0, 0, 160, 120);
+    const hasMovement = detectMotion(frameData);
+
+    setMotionDetected(hasMovement);
+
+    if (hasMovement) {
+      // Solo analizar si hay movimiento significativo y han pasado al menos 3 segundos
+      const now = Date.now();
+      if (now - lastAnalysisTime.current > 3000 && !processingAnalysis.current) {
+        triggerSmartAnalysis();
+      }
+    }
+  }, [detectMotion, cameraActive]);
+
+  // Análisis inteligente solo cuando hay cambios
+  const triggerSmartAnalysis = useCallback(async () => {
+    if (processingAnalysis.current || !videoRef.current || !canvasRef.current) return;
+
+    processingAnalysis.current = true;
+    lastAnalysisTime.current = Date.now();
+
+    try {
+      await captureAndAnalyze();
+    } finally {
+      processingAnalysis.current = false;
+    }
+  }, []);
+
+  // Iniciar detección de movimiento en tiempo real
+  const startMotionDetection = useCallback(() => {
+    if (motionDetectionRef.current) return;
+
+    console.log('Iniciando detección de movimiento inteligente...');
+    speak("Sistema de detección inteligente activado. Analizaré cuando detecte cambios importantes.");
+
+    // Detección de movimiento cada 100ms (muy rápido y eficiente)
+    motionDetectionRef.current = setInterval(() => {
+      captureFrameForMotion();
+    }, 100);
+  }, [captureFrameForMotion, speak]);
+
   // Stop real-time analysis
   const stopRealTimeAnalysis = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    if (motionDetectionRef.current) {
+      clearInterval(motionDetectionRef.current);
+      motionDetectionRef.current = null;
+    }
     setIsRealTimeActive(false);
+    setMotionDetected(false);
+    processingAnalysis.current = false;
   }, []);
 
   // Initialize camera with native permission handling
@@ -152,10 +254,10 @@ const VisionAssistant = () => {
       
       speak("Cámara activada. Iniciando detección automática.");
       
-    // Auto-start real-time analysis immediately
+    // Auto-start smart motion detection
     setTimeout(() => {
-      startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
-    }, 500);
+      startRealTimeAnalysis();
+    }, 2000);
       
     } catch (error) {
       console.error('Error completo al acceder a cámara:', error);
@@ -217,8 +319,8 @@ const VisionAssistant = () => {
       const video = videoRef.current;
       const context = canvas.getContext('2d')!;
       
-      // Downscale to reduce payload and improve speed
-      const maxW = 480, maxH = 480;
+      // Downscale aún más para reducir payload y mejorar velocidad
+      const maxW = 320, maxH = 320;
       const vw = video.videoWidth || 1280;
       const vh = video.videoHeight || 720;
       const ratio = Math.min(maxW / vw, maxH / vh);
@@ -228,7 +330,7 @@ const VisionAssistant = () => {
       canvas.height = th;
       context.drawImage(video, 0, 0, tw, th);
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.5);
+      const imageData = canvas.toDataURL('image/jpeg', 0.3);
       
       const result = await analyzeImage(imageData);
       
@@ -248,10 +350,10 @@ const VisionAssistant = () => {
         }
         setIsRealTimeActive(true);
         setTimeout(() => {
-          if (cameraActive && !intervalRef.current) {
-            startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
+          if (cameraActive) {
+            startMotionDetection();
           }
-        }, 2000);
+        }, 5000);
       }
       
       if (result.severity === 'danger') {
@@ -272,29 +374,14 @@ const VisionAssistant = () => {
     }
   }, [speak, cameraActive]);
 
-  // Start real-time analysis
+  // Start real-time analysis with smart detection
   const startRealTimeAnalysis = useCallback(() => {
-    if (intervalRef.current || !cameraActive) return;
+    if (motionDetectionRef.current || !cameraActive) return;
     
-    console.log('Iniciando análisis en tiempo real automático...');
+    console.log('Iniciando sistema de detección inteligente...');
     setIsRealTimeActive(true);
-    speak("Análisis automático activado. Detectando peligros y obstáculos continuamente.");
-    
-    // Hacer el primer análisis inmediatamente
-    setTimeout(() => {
-      if (!isAnalyzing && cameraActive) {
-        captureAndAnalyze();
-      }
-    }, 500);
-    
-    // Análisis cada 1 segundo para detección rápida
-    intervalRef.current = setInterval(() => {
-      if (!isAnalyzing && cameraActive) {
-        console.log('Ejecutando análisis automático en tiempo real...');
-        captureAndAnalyze();
-      }
-    }, 1000);
-  }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
+    startMotionDetection();
+  }, [startMotionDetection, cameraActive]);
 
   // Mantener una referencia actualizada a la función
   useEffect(() => {
@@ -522,17 +609,30 @@ const VisionAssistant = () => {
         </Card>
 
         {/* Real-time Analysis Status */}
-        <div className="text-center mb-4 lg:mb-6">
+        <div className="text-center mb-4 lg:mb-6 space-y-2">
           <div className={`inline-flex items-center gap-2 px-3 lg:px-4 py-2 rounded-full text-sm lg:text-base ${
-            isRealTimeActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+            isRealTimeActive ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'
           }`}>
             <div className={`w-2 h-2 lg:w-3 lg:h-3 rounded-full ${
-              isRealTimeActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+              isRealTimeActive ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'
             }`}></div>
             <span className="font-medium">
-              {isRealTimeActive ? 'Análisis en Tiempo Real Activo' : 'Análisis en Tiempo Real Inactivo'}
+              {isRealTimeActive ? 'Detección Inteligente Activa' : 'Sistema Inactivo'}
             </span>
           </div>
+          
+          {isRealTimeActive && (
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ${
+              motionDetected ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'
+            }`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                motionDetected ? 'bg-orange-500 animate-pulse' : 'bg-green-500'
+              }`}></div>
+              <span>
+                {motionDetected ? 'Movimiento detectado' : 'Escena estable'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Control Buttons - Solo comandos de voz */}
