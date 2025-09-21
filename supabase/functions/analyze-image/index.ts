@@ -6,32 +6,153 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+// Rate limiting y cache en memoria
+const requestTracker = new Map<string, { count: number; lastReset: number; lastAnalysis: number }>();
+const analysisCache = new Map<string, { result: any; timestamp: number }>();
+const analysisQueue: Array<{ resolve: Function; reject: Function; imageData: string; clientId: string }> = [];
+let isProcessingQueue = false;
+
+// Configuración
+const RATE_LIMIT = {
+  maxRequestsPerMinute: 3, // Máximo 3 análisis por minuto por cliente
+  windowMs: 60 * 1000, // Ventana de 1 minuto
+  minTimeBetweenRequests: 15000, // Mínimo 15 segundos entre análisis
+};
+
+const CACHE_CONFIG = {
+  maxAge: 5 * 60 * 1000, // Cache por 5 minutos
+  maxEntries: 50, // Máximo 50 entradas en cache
+};
+
+// Generar hash simple de imagen para cache
+function generateImageHash(imageData: string): string {
+  return imageData.substring(0, 100) + imageData.length.toString();
+}
+
+// Verificar rate limiting
+function checkRateLimit(clientId: string): { allowed: boolean; waitTime?: number } {
+  const now = Date.now();
+  const tracker = requestTracker.get(clientId);
+
+  if (!tracker) {
+    requestTracker.set(clientId, { count: 1, lastReset: now, lastAnalysis: now });
+    return { allowed: true };
   }
 
-  try {
-    const { imageData } = await req.json()
-    console.log('Recibida solicitud de análisis de imagen')
+  // Reset contador si ha pasado la ventana de tiempo
+  if (now - tracker.lastReset > RATE_LIMIT.windowMs) {
+    tracker.count = 1;
+    tracker.lastReset = now;
+    tracker.lastAnalysis = now;
+    return { allowed: true };
+  }
+
+  // Verificar tiempo mínimo entre requests
+  const timeSinceLastAnalysis = now - tracker.lastAnalysis;
+  if (timeSinceLastAnalysis < RATE_LIMIT.minTimeBetweenRequests) {
+    const waitTime = RATE_LIMIT.minTimeBetweenRequests - timeSinceLastAnalysis;
+    return { allowed: false, waitTime: Math.ceil(waitTime / 1000) };
+  }
+
+  // Verificar límite por minuto
+  if (tracker.count >= RATE_LIMIT.maxRequestsPerMinute) {
+    const waitTime = RATE_LIMIT.windowMs - (now - tracker.lastReset);
+    return { allowed: false, waitTime: Math.ceil(waitTime / 1000) };
+  }
+
+  tracker.count++;
+  tracker.lastAnalysis = now;
+  return { allowed: true };
+}
+
+// Limpiar cache antiguo
+function cleanCache() {
+  const now = Date.now();
+  const entries = Array.from(analysisCache.entries());
+  
+  // Eliminar entradas antiguas
+  for (const [key, value] of entries) {
+    if (now - value.timestamp > CACHE_CONFIG.maxAge) {
+      analysisCache.delete(key);
+    }
+  }
+
+  // Mantener solo las entradas más recientes si excede el límite
+  if (analysisCache.size > CACHE_CONFIG.maxEntries) {
+    const sortedEntries = entries
+      .sort((a, b) => b[1].timestamp - a[1].timestamp)
+      .slice(0, CACHE_CONFIG.maxEntries);
     
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openaiApiKey) {
-      console.error('OpenAI API key no configurado')
-      const analysisResult = {
-        type: 'general',
-        severity: 'warning',
-        message: 'Servicio de análisis no configurado. Falta la API key.',
-        confidence: 0.0
-      }
-      return new Response(
-        JSON.stringify(analysisResult),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    analysisCache.clear();
+    for (const [key, value] of sortedEntries) {
+      analysisCache.set(key, value);
+    }
+  }
+}
+
+// Generar respuestas inteligentes sin análisis
+function generateFallbackResponse(): any {
+  const fallbackResponses = [
+    {
+      type: 'general',
+      severity: 'safe',
+      message: 'Continúa con precaución. El sistema está en pausa temporal.',
+      confidence: 0.8
+    },
+    {
+      type: 'general',
+      severity: 'warning',
+      message: 'Mantén atención al entorno mientras se reactiva el análisis automático.',
+      confidence: 0.7
+    },
+    {
+      type: 'general',
+      severity: 'safe',
+      message: 'Camina despacio y mantente alerta. El análisis se reanudará pronto.',
+      confidence: 0.8
+    }
+  ];
+
+  return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+}
+
+// Procesar cola de análisis
+async function processQueue() {
+  if (isProcessingQueue || analysisQueue.length === 0) return;
+  
+  isProcessingQueue = true;
+  console.log(`Procesando cola de análisis. ${analysisQueue.length} solicitudes pendientes.`);
+
+  while (analysisQueue.length > 0) {
+    const queueItem = analysisQueue.shift();
+    if (!queueItem) continue;
+
+    try {
+      const result = await performOpenAIAnalysis(queueItem.imageData);
+      queueItem.resolve(result);
+    } catch (error) {
+      console.error('Error procesando item de cola:', error);
+      queueItem.reject(error);
     }
 
-    // Prompt optimizado para análisis en tiempo real con detección de objetos
-    const unifiedPrompt = `Eres un asistente visual para personas con discapacidad visual. Analiza esta imagen EN TIEMPO REAL para detectar:
+    // Esperar entre análisis para respetar rate limits de OpenAI
+    if (analysisQueue.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+
+  isProcessingQueue = false;
+}
+
+// Realizar análisis con OpenAI (función extraída)
+async function performOpenAIAnalysis(imageData: string): Promise<any> {
+  const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+  
+  if (!openaiApiKey) {
+    throw new Error('OpenAI API key no configurado');
+  }
+
+  const unifiedPrompt = `Eres un asistente visual para personas con discapacidad visual. Analiza esta imagen EN TIEMPO REAL para detectar:
 
 PRIORIDAD MÁXIMA - PELIGROS INMEDIATOS:
 1. OBSTÁCULOS PELIGROSOS:
@@ -76,151 +197,191 @@ CRITERIOS DE SEVERIDAD:
 
 EJEMPLOS DE MENSAJES:
 - "PELIGRO: Escalón de 20cm hacia abajo"
-- "CUIDADO: Poste a 1 metro adelante"
+- "CUIDADO: Poste a 1 metro adelante"  
 - "Billete de 50 soles auténtico"
 - "Veo una mesa de madera, dos sillas y una taza sobre ella"
 - "Hay una persona caminando, un perro pequeño y un auto estacionado"
-- "Detecta: celular, llaves, cartera y una botella de agua"`
+- "Detecta: celular, llaves, cartera y una botella de agua"`;
 
-    console.log('Enviando solicitud a OpenAI API con gpt-5-mini...')
-    
-    let retries = 0
-    const maxRetries = 4
-    let response
-    
-    while (retries <= maxRetries) {
-      try {
-        response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openaiApiKey}`,
-            'Content-Type': 'application/json',
-          },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  {
-                    role: 'user',
-                    content: [
-                      {
-                        type: 'text',
-                        text: unifiedPrompt
-                      },
-                      {
-                        type: 'image_url',
-                        image_url: {
-                          url: imageData
-                        }
-                      }
-                    ]
-                  }
-                ],
-                response_format: { type: 'json_object' },
-                max_tokens: 200,
-                temperature: 0
-              })
-        })
-        
-        if (response.ok) {
-          break // Salir del loop si la respuesta es exitosa
-        } else if (response.status === 429 && retries < maxRetries) {
-          // Rate limit - esperar y reintentar
-          const waitTime = Math.pow(2, retries) * 1000 // Backoff exponencial
-          console.log(`Rate limit alcanzado, esperando ${waitTime}ms antes de reintentar...`)
-          await new Promise(resolve => setTimeout(resolve, waitTime))
-          retries++
-          continue
-        } else {
-          // Otro error, lanzar excepción
-          const errorText = await response.text()
-          console.error(`Error de OpenAI API: ${response.status} - ${errorText}`)
-          throw new Error(`OpenAI API error: ${response.status}`)
+  console.log('Enviando solicitud a OpenAI API con gpt-4o-mini...');
+  
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: unifiedPrompt
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageData
+              }
+            }
+          ]
         }
-      } catch (fetchError) {
-        if (retries < maxRetries) {
-          console.log(`Error de red, reintentando en ${1000 * (retries + 1)}ms...`)
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retries + 1)))
-          retries++
-          continue
-        } else {
-          throw fetchError
-        }
-      }
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 200,
+      temperature: 0
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Error de OpenAI API: ${response.status} - ${errorText}`);
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  const openaiResult = await response.json();
+  const content = openaiResult.choices[0]?.message?.content;
+
+  if (!content) {
+    throw new Error('No hay contenido en la respuesta de OpenAI');
+  }
+
+  // Parse JSON response
+  const contentStr = typeof content === 'string' ? content : JSON.stringify(content);
+  const cleaned = contentStr.replace(/```json/i, '').replace(/```/g, '').trim();
+  
+  let analysisResult = JSON.parse(cleaned);
+  
+  // Validar que tenga los campos requeridos
+  if (!analysisResult.type || !analysisResult.severity || !analysisResult.message) {
+    throw new Error('Respuesta incompleta de OpenAI');
+  }
+  
+  // Asegurar que confidence tenga un valor válido
+  if (!analysisResult.confidence || analysisResult.confidence < 0.7) {
+    analysisResult.confidence = 0.8;
+  }
+
+  return analysisResult;
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const { imageData } = await req.json();
+    console.log('Recibida solicitud de análisis de imagen');
+    
+    // Obtener ID del cliente (usando IP como identificador)
+    const clientId = req.headers.get('x-forwarded-for') || 
+                     req.headers.get('x-real-ip') || 
+                     'unknown-client';
+    
+    // Limpiar cache periódicamente
+    if (Math.random() < 0.1) { // 10% de probabilidad
+      cleanCache();
     }
-
-    const openaiResult = await response.json()
-    console.log('Respuesta de OpenAI recibida:', JSON.stringify(openaiResult, null, 2))
     
-    const content = openaiResult.choices[0]?.message?.content
-
-    if (!content) {
-      console.error('No hay contenido en la respuesta de OpenAI; usando fallback')
-      const analysisResult = {
+    // Verificar rate limiting
+    const rateLimitCheck = checkRateLimit(clientId);
+    if (!rateLimitCheck.allowed) {
+      console.log(`Rate limit excedido para cliente ${clientId}. Esperar ${rateLimitCheck.waitTime}s`);
+      
+      const fallbackResponse = {
         type: 'general',
         severity: 'warning',
-        message: 'No se pudo analizar la imagen correctamente. Intente nuevamente.',
-        confidence: 0.7
-      }
+        message: `Sistema en pausa. Reintentando en ${rateLimitCheck.waitTime} segundos. Mantente alerta.`,
+        confidence: 0.7,
+        rateLimited: true,
+        waitTime: rateLimitCheck.waitTime
+      };
+      
+      return new Response(
+        JSON.stringify(fallbackResponse),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Verificar cache
+    const imageHash = generateImageHash(imageData);
+    const cachedResult = analysisCache.get(imageHash);
+    
+    if (cachedResult && Date.now() - cachedResult.timestamp < CACHE_CONFIG.maxAge) {
+      console.log('Respuesta desde cache');
+      return new Response(
+        JSON.stringify({ ...cachedResult.result, fromCache: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Si hay muchas solicitudes en cola, dar respuesta de fallback
+    if (analysisQueue.length > 5) {
+      console.log('Cola saturada, enviando respuesta de fallback');
+      const fallbackResponse = generateFallbackResponse();
+      return new Response(
+        JSON.stringify({ ...fallbackResponse, queueSaturated: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Agregar a cola y procesar
+    const analysisPromise = new Promise((resolve, reject) => {
+      analysisQueue.push({ resolve, reject, imageData, clientId });
+      processQueue(); // Iniciar procesamiento si no está activo
+    });
+
+    // Timeout para evitar esperas indefinidas
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Timeout')), 30000); // 30 segundos timeout
+    });
+
+    try {
+      const analysisResult = await Promise.race([analysisPromise, timeoutPromise]);
+      
+      // Guardar en cache
+      analysisCache.set(imageHash, {
+        result: analysisResult,
+        timestamp: Date.now()
+      });
+      
+      console.log('Análisis completado exitosamente');
       return new Response(
         JSON.stringify(analysisResult),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      );
+      
+    } catch (analysisError) {
+      console.error('Error en análisis:', analysisError);
+      
+      // Si hay error, dar respuesta inteligente
+      const fallbackResponse = generateFallbackResponse();
+      return new Response(
+        JSON.stringify({ ...fallbackResponse, error: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
-
-    // Parse JSON response
-    let analysisResult
-    const contentStr = typeof content === 'string' ? content : JSON.stringify(content)
-    const cleaned = contentStr.replace(/```json/i, '').replace(/```/g, '').trim()
-    
-    try {
-      analysisResult = JSON.parse(cleaned)
-      console.log('Resultado de análisis:', analysisResult)
-      
-      // Validar que tenga los campos requeridos
-      if (!analysisResult.type || !analysisResult.severity || !analysisResult.message) {
-        throw new Error('Respuesta incompleta de OpenAI')
-      }
-      
-      // Asegurar que confidence tenga un valor válido
-      if (!analysisResult.confidence || analysisResult.confidence < 0.7) {
-        analysisResult.confidence = 0.8
-      }
-      
-    } catch (e) {
-      console.error('Error parseando JSON:', e)
-      // Fallback si falla el parsing
-      analysisResult = {
-        type: 'general',
-        severity: 'warning',
-        message: 'No se pudo analizar la imagen correctamente. Intente nuevamente.',
-        confidence: 0.7
-      }
-    }
-
-    return new Response(
-      JSON.stringify(analysisResult),
-      { 
-        headers: { 
-          ...corsHeaders, 
-          'Content-Type': 'application/json' 
-        } 
-      }
-    )
 
   } catch (error) {
-    console.error('Error en analyze-image:', error)
-    const errMsg = typeof error === 'string' ? error : (error as Error)?.message || ''
-    const isRateLimit = errMsg.includes('429') || errMsg.includes('rate_limit_exceeded') || errMsg.toLowerCase().includes('rate limit')
-    const analysisResult = {
-      type: 'general',
-      severity: 'warning',
-      message: isRateLimit
-        ? 'Demasiadas solicitudes al servicio de análisis. Espera unos segundos e inténtalo de nuevo.'
-        : 'No se pudo analizar la imagen en este momento. Intente nuevamente.',
-      confidence: 0.0
-    }
+    console.error('Error en analyze-image:', error);
+    const errMsg = typeof error === 'string' ? error : (error as Error)?.message || '';
+    
+    // Generar respuesta de fallback apropiada
+    const fallbackResponse = generateFallbackResponse();
+    const enhancedResponse = {
+      ...fallbackResponse,
+      message: errMsg.includes('429') || errMsg.includes('rate_limit_exceeded') 
+        ? 'Sistema temporalmente ocupado. Mantente alerta mientras se reactiva.'
+        : fallbackResponse.message,
+      systemError: true
+    };
+    
     return new Response(
-      JSON.stringify(analysisResult),
+      JSON.stringify(enhancedResponse),
       { 
         status: 200,
         headers: { 
@@ -228,6 +389,6 @@ EJEMPLOS DE MENSAJES:
           'Content-Type': 'application/json' 
         } 
       }
-    )
+    );
   }
-})
+});

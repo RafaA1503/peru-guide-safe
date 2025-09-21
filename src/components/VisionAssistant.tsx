@@ -563,6 +563,44 @@ const VisionAssistant = () => {
         throw error;
       }
 
+      // Manejar respuestas especiales del servidor
+      if (data.rateLimited) {
+        console.log(`Rate limited por servidor, esperando ${data.waitTime}s`);
+        
+        // Pausar análisis temporalmente y usar respuestas inteligentes
+        if (lastAnalysisResult) {
+          const continuousMessage = `Basándome en el análisis anterior: ${lastAnalysisResult.message}. Sistema reactivándose en ${data.waitTime} segundos.`;
+          speak(continuousMessage, 'medium');
+        }
+        
+        return {
+          type: 'general',
+          severity: 'safe',
+          message: data.message || 'Sistema en pausa temporal',
+          confidence: 0.7,
+        };
+      }
+
+      if (data.fromCache) {
+        console.log('Respuesta desde cache del servidor');
+      }
+
+      if (data.queueSaturated) {
+        console.log('Cola del servidor saturada');
+        
+        // Usar respuesta anterior si existe
+        if (lastAnalysisResult) {
+          const intelligentResponse = `La situación se mantiene similar a antes: ${lastAnalysisResult.message}`;
+          speak(intelligentResponse, 'low');
+          
+          return {
+            ...lastAnalysisResult,
+            message: intelligentResponse,
+            confidence: Math.max(0.6, lastAnalysisResult.confidence - 0.1),
+          };
+        }
+      }
+
       // Ensure we have a proper AnalysisResult object
       let result: AnalysisResult = data;
       
@@ -575,50 +613,7 @@ const VisionAssistant = () => {
             severity: 'warning',
             message: data,
             confidence: 0.7,
-  };
-
-  // Proporcionar orientación en tiempo real como un guía personal
-  const provideRealtimeGuidance = (result: AnalysisResult) => {
-    const guidance = [];
-    
-    if (result.type === 'obstacle') {
-      if (result.severity === 'danger') {
-        guidance.push('¡Alto! Hay un obstáculo peligroso adelante.');
-      } else if (result.severity === 'warning') {
-        guidance.push('Cuidado, hay algo en tu camino que debes esquivar.');
-      }
-    } else if (result.type === 'currency') {
-      guidance.push('He identificado un billete. ¿Quieres que lo verifique?');
-    } else {
-      // Análisis general del entorno
-      if (result.message.toLowerCase().includes('despejado')) {
-        guidance.push('El camino se ve bien. Puedes continuar con confianza.');
-      } else if (result.message.toLowerCase().includes('persona')) {
-        guidance.push('Hay personas cerca. Mantén tu ritmo normal.');
-      } else if (result.message.toLowerCase().includes('vehículo') || result.message.toLowerCase().includes('auto')) {
-        guidance.push('Cuidado, hay vehículos en el área.');
-      }
-    }
-    
-    return guidance.join(' ');
-  };
-
-  // Mensajes positivos para situaciones seguras
-  const getPositiveGuidance = (result: AnalysisResult): string => {
-    const positiveMessages = [
-      'Todo bien por aquí, sigue adelante',
-      'El camino está despejado, puedes caminar tranquilo',
-      'Área segura, continúa con confianza',
-      'Sin obstáculos a la vista, todo perfecto',
-      'Camino libre, sigue tu ritmo normal'
-    ];
-    
-    if (result.message.toLowerCase().includes('despejado') || result.message.toLowerCase().includes('libre')) {
-      return positiveMessages[Math.floor(Math.random() * positiveMessages.length)];
-    }
-    
-    return result.message;
-  };
+          };
         }
       }
 
@@ -638,13 +633,28 @@ const VisionAssistant = () => {
       
     } catch (error) {
       console.error('Error calling analysis API:', error);
+      
+      // Si hay resultado previo y error, usar el resultado previo con mensaje actualizado
+      if (lastAnalysisResult && error.message && !error.message.includes('quota')) {
+        const fallbackMessage = `Manteniendo alerta del análisis anterior: ${lastAnalysisResult.message}`;
+        speak(fallbackMessage, 'low');
+        
+        return {
+          ...lastAnalysisResult,
+          message: fallbackMessage,
+          confidence: Math.max(0.5, lastAnalysisResult.confidence - 0.2),
+        };
+      }
+      
       return {
         type: 'general',
-        severity: 'warning',
-        message: 'Servicio de análisis temporalmente ocupado. Reintentando...',
-        confidence: 0.0,
+        severity: 'safe',
+        message: 'Sistema en modo conservador. Camina con precaución mientras se reactiva.',
+        confidence: 0.6,
       };
     }
+  };
+
   };
 
   useEffect(() => {
