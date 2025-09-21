@@ -70,16 +70,92 @@ const VisionAssistant = () => {
 
   const { isListening, startListening, isSupported } = useVoiceRecognition(handleVoiceCommand);
 
-  // Text-to-speech function
-  const speak = useCallback((text: string) => {
+  // Text-to-speech function más natural y conversacional
+  const speak = useCallback((text: string, priority: 'high' | 'medium' | 'low' = 'medium') => {
     if ('speechSynthesis' in window) {
+      // Cancelar speech anterior si es de prioridad alta
+      if (priority === 'high') {
+        speechSynthesis.cancel();
+      }
+      
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'es-ES';
-      utterance.rate = 0.9;
-      utterance.pitch = 1;
+      utterance.rate = 1.0; // Velocidad natural
+      utterance.pitch = 1.0;
+      utterance.volume = 0.8;
+      
+      // Hacer más conversacional
+      const conversationalText = makeConversational(text);
+      utterance.text = conversationalText;
+      
       speechSynthesis.speak(utterance);
     }
   }, []);
+
+  // Hacer el texto más conversacional y natural
+  const makeConversational = (text: string): string => {
+    // Patrones para hacer más natural la comunicación
+    if (text.toLowerCase().includes('peligro')) {
+      return `¡Cuidado! ${text}. Te recomiendo detenerte un momento.`;
+    }
+    if (text.toLowerCase().includes('escalón') || text.toLowerCase().includes('obstáculo')) {
+      return `Atención, ${text}. Ve con cuidado.`;
+    }
+    if (text.toLowerCase().includes('despejado') || text.toLowerCase().includes('libre')) {
+      return `Perfecto, ${text}. Puedes continuar caminando tranquilo.`;
+    }
+    if (text.toLowerCase().includes('billete') || text.toLowerCase().includes('dinero')) {
+      return `He detectado ${text}. ¿Te ayudo a verificarlo?`;
+    }
+    if (text.toLowerCase().includes('mesa') || text.toLowerCase().includes('silla') || text.toLowerCase().includes('persona')) {
+      return `Veo ${text} en el área. Mantente alerta mientras caminas.`;
+    }
+    
+    return text;
+  };
+
+  // Proporcionar orientación en tiempo real como un guía personal
+  const provideRealtimeGuidance = (result: AnalysisResult) => {
+    const guidance = [];
+    
+    if (result.type === 'obstacle') {
+      if (result.severity === 'danger') {
+        guidance.push('¡Alto! Hay un obstáculo peligroso adelante.');
+      } else if (result.severity === 'warning') {
+        guidance.push('Cuidado, hay algo en tu camino que debes esquivar.');
+      }
+    } else if (result.type === 'currency') {
+      guidance.push('He identificado un billete. ¿Quieres que lo verifique?');
+    } else {
+      // Análisis general del entorno
+      if (result.message.toLowerCase().includes('despejado')) {
+        guidance.push('El camino se ve bien. Puedes continuar con confianza.');
+      } else if (result.message.toLowerCase().includes('persona')) {
+        guidance.push('Hay personas cerca. Mantén tu ritmo normal.');
+      } else if (result.message.toLowerCase().includes('vehículo') || result.message.toLowerCase().includes('auto')) {
+        guidance.push('Cuidado, hay vehículos en el área.');
+      }
+    }
+    
+    return guidance.join(' ');
+  };
+
+  // Mensajes positivos para situaciones seguras
+  const getPositiveGuidance = (result: AnalysisResult): string => {
+    const positiveMessages = [
+      'Todo bien por aquí, sigue adelante',
+      'El camino está despejado, puedes caminar tranquilo',
+      'Área segura, continúa con confianza',
+      'Sin obstáculos a la vista, todo perfecto',
+      'Camino libre, sigue tu ritmo normal'
+    ];
+    
+    if (result.message.toLowerCase().includes('despejado') || result.message.toLowerCase().includes('libre')) {
+      return positiveMessages[Math.floor(Math.random() * positiveMessages.length)];
+    }
+    
+    return result.message;
+  };
 
   // Detectar movimiento en tiempo real
   const detectMotion = useCallback((currentFrame: ImageData) => {
@@ -112,7 +188,12 @@ const VisionAssistant = () => {
 
   // Capturar frame para detección de movimiento
   const captureFrameForMotion = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !cameraActive) return;
+    if (!videoRef.current || !canvasRef.current) return;
+
+    // Verificar que el video esté funcionando
+    if (videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0) {
+      return;
+    }
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -121,21 +202,25 @@ const VisionAssistant = () => {
     // Usar resolución muy baja para detección de movimiento (más rápido)
     canvas.width = 160;
     canvas.height = 120;
-    context.drawImage(video, 0, 0, 160, 120);
     
-    const frameData = context.getImageData(0, 0, 160, 120);
-    const hasMovement = detectMotion(frameData);
+    try {
+      context.drawImage(video, 0, 0, 160, 120);
+      const frameData = context.getImageData(0, 0, 160, 120);
+      const hasMovement = detectMotion(frameData);
 
-    setMotionDetected(hasMovement);
+      setMotionDetected(hasMovement);
 
-    if (hasMovement) {
-      // Solo analizar si hay movimiento significativo y han pasado al menos 3 segundos
-      const now = Date.now();
-      if (now - lastAnalysisTime.current > 3000 && !processingAnalysis.current) {
-        triggerSmartAnalysis();
+      if (hasMovement) {
+        // Solo analizar si hay movimiento significativo y han pasado al menos 3 segundos
+        const now = Date.now();
+        if (now - lastAnalysisTime.current > 3000 && !processingAnalysis.current) {
+          triggerSmartAnalysis();
+        }
       }
+    } catch (error) {
+      console.warn('Error en detección de movimiento:', error);
     }
-  }, [detectMotion, cameraActive]);
+  }, [detectMotion]);
 
   // Análisis inteligente solo cuando hay cambios
   const triggerSmartAnalysis = useCallback(async () => {
@@ -156,7 +241,7 @@ const VisionAssistant = () => {
     if (motionDetectionRef.current) return;
 
     console.log('Iniciando detección de movimiento inteligente...');
-    speak("Sistema de detección inteligente activado. Analizaré cuando detecte cambios importantes.");
+    speak("Hola, soy tu asistente visual. Voy a estar contigo para guiarte de forma segura. Te avisaré sobre cualquier obstáculo o situación importante.", 'high');
 
     // Detección de movimiento cada 100ms (muy rápido y eficiente)
     motionDetectionRef.current = setInterval(() => {
@@ -252,7 +337,7 @@ const VisionAssistant = () => {
         }
       }
       
-      speak("Cámara activada. Iniciando detección automática.");
+      speak("Cámara activada. Tu asistente visual está listo para ayudarte a navegar de forma segura.", 'high');
       
     // Auto-start smart motion detection
     setTimeout(() => {
@@ -307,8 +392,14 @@ const VisionAssistant = () => {
 
   // Capture image and analyze
   const captureAndAnalyze = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !cameraActive) {
-      toast.error('Cámara no disponible');
+    if (!videoRef.current || !canvasRef.current) {
+      console.warn('Video o canvas no disponible, pero continuando...');
+      return;
+    }
+
+    // Verificar que el video esté realmente reproduciendo
+    if (videoRef.current.readyState < 2) {
+      console.warn('Video no está listo, esperando...');
       return;
     }
 
@@ -335,7 +426,23 @@ const VisionAssistant = () => {
       const result = await analyzeImage(imageData);
       
       setAnalysisResult(result);
-      speak(result.message);
+      
+      // Comentario en tiempo real más natural
+      const guidanceMessage = provideRealtimeGuidance(result);
+      
+      // Si hay peligro, hablar inmediatamente con prioridad alta
+      if (result.severity === 'danger') {
+        speak(result.message, 'high');
+        toast.error(result.message);
+      } else if (result.severity === 'warning') {
+        speak(result.message, 'medium');
+        toast.warning(result.message);
+      } else {
+        // Para situaciones seguras, dar orientación positiva
+        const positiveMessage = getPositiveGuidance(result);
+        speak(positiveMessage, 'low');
+        toast.success(result.message);
+      }
       
       // If rate limited or transient error, pause and resume automatically
       if (
@@ -418,7 +525,50 @@ const VisionAssistant = () => {
             severity: 'warning',
             message: data,
             confidence: 0.7,
-          };
+  };
+
+  // Proporcionar orientación en tiempo real como un guía personal
+  const provideRealtimeGuidance = (result: AnalysisResult) => {
+    const guidance = [];
+    
+    if (result.type === 'obstacle') {
+      if (result.severity === 'danger') {
+        guidance.push('¡Alto! Hay un obstáculo peligroso adelante.');
+      } else if (result.severity === 'warning') {
+        guidance.push('Cuidado, hay algo en tu camino que debes esquivar.');
+      }
+    } else if (result.type === 'currency') {
+      guidance.push('He identificado un billete. ¿Quieres que lo verifique?');
+    } else {
+      // Análisis general del entorno
+      if (result.message.toLowerCase().includes('despejado')) {
+        guidance.push('El camino se ve bien. Puedes continuar con confianza.');
+      } else if (result.message.toLowerCase().includes('persona')) {
+        guidance.push('Hay personas cerca. Mantén tu ritmo normal.');
+      } else if (result.message.toLowerCase().includes('vehículo') || result.message.toLowerCase().includes('auto')) {
+        guidance.push('Cuidado, hay vehículos en el área.');
+      }
+    }
+    
+    return guidance.join(' ');
+  };
+
+  // Mensajes positivos para situaciones seguras
+  const getPositiveGuidance = (result: AnalysisResult): string => {
+    const positiveMessages = [
+      'Todo bien por aquí, sigue adelante',
+      'El camino está despejado, puedes caminar tranquilo',
+      'Área segura, continúa con confianza',
+      'Sin obstáculos a la vista, todo perfecto',
+      'Camino libre, sigue tu ritmo normal'
+    ];
+    
+    if (result.message.toLowerCase().includes('despejado') || result.message.toLowerCase().includes('libre')) {
+      return positiveMessages[Math.floor(Math.random() * positiveMessages.length)];
+    }
+    
+    return result.message;
+  };
         }
       }
 
