@@ -32,6 +32,7 @@ const VisionAssistant = () => {
   const [cameraActive, setCameraActive] = useState(false);
   const [motionDetected, setMotionDetected] = useState(false);
   const [analysisQueue, setAnalysisQueue] = useState<number[]>([]);
+  const [lastAnalysisResult, setLastAnalysisResult] = useState<AnalysisResult | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -43,6 +44,7 @@ const VisionAssistant = () => {
   const analysisQueueRef = useRef<ImageData[]>([]);
   const lastAnalysisTime = useRef<number>(0);
   const processingAnalysis = useRef<boolean>(false);
+  const significantChangeThreshold = useRef<number>(50); // Umbral más alto para cambios significativos
 
   const { isAndroid, isMobile, isNative } = usePlatform();
 
@@ -157,7 +159,20 @@ const VisionAssistant = () => {
     return result.message;
   };
 
-  // Detectar movimiento en tiempo real
+  // Proporcionar guidance continua sin análisis de IA
+  const provideContinuousGuidance = (lastResult: AnalysisResult) => {
+    const continuousMessages = [
+      "Mantén el ritmo, todo sigue igual que antes",
+      "Continúa por el mismo camino, sin cambios",
+      "Situación estable, puedes seguir tranquilo",
+      "El área se mantiene como la dejamos, adelante"
+    ];
+    
+    const randomMessage = continuousMessages[Math.floor(Math.random() * continuousMessages.length)];
+    speak(randomMessage, 'low');
+  };
+
+  // Detectar movimiento significativo en tiempo real (más estricto)
   const detectMotion = useCallback((currentFrame: ImageData) => {
     if (!lastFrameRef.current) {
       lastFrameRef.current = currentFrame;
@@ -165,9 +180,9 @@ const VisionAssistant = () => {
     }
 
     const lastFrame = lastFrameRef.current;
-    const threshold = 30; // Sensibilidad de movimiento
+    const threshold = significantChangeThreshold.current; // Umbral más alto
     let totalDiff = 0;
-    const sampleStep = 4; // Analizar cada 4to pixel para velocidad
+    const sampleStep = 8; // Analizar cada 8vo pixel (menos muestras = más rápido)
 
     for (let i = 0; i < currentFrame.data.length; i += sampleStep * 4) {
       const rDiff = Math.abs(currentFrame.data[i] - lastFrame.data[i]);
@@ -177,13 +192,15 @@ const VisionAssistant = () => {
     }
 
     const avgDiff = totalDiff / (currentFrame.data.length / (sampleStep * 4));
-    const isMoving = avgDiff > threshold;
+    const isSignificantChange = avgDiff > threshold;
 
-    if (isMoving) {
+    // Solo actualizar frame de referencia si hay cambio significativo
+    if (isSignificantChange) {
       lastFrameRef.current = currentFrame;
+      console.log(`Cambio significativo detectado: ${avgDiff.toFixed(2)}`);
     }
 
-    return isMoving;
+    return isSignificantChange;
   }, []);
 
   // Capturar frame para detección de movimiento
@@ -210,13 +227,32 @@ const VisionAssistant = () => {
 
       setMotionDetected(hasMovement);
 
-      if (hasMovement) {
-        // Solo analizar si hay movimiento significativo y han pasado al menos 3 segundos
-        const now = Date.now();
-        if (now - lastAnalysisTime.current > 3000 && !processingAnalysis.current) {
-          triggerSmartAnalysis();
+    if (hasMovement) {
+      // Solo analizar si hay movimiento Y han pasado al menos 10 segundos
+      const now = Date.now();
+      const minIntervalBetweenAnalysis = 10000; // 10 segundos mínimo
+      
+      if (now - lastAnalysisTime.current > minIntervalBetweenAnalysis && !processingAnalysis.current) {
+        console.log('Movimiento significativo detectado, iniciando análisis...');
+        triggerSmartAnalysis();
+      } else {
+        // Dar feedback sin análisis de IA
+        const timeRemaining = Math.ceil((minIntervalBetweenAnalysis - (now - lastAnalysisTime.current)) / 1000);
+        console.log(`Movimiento detectado, pero esperando ${timeRemaining}s más...`);
+        
+        // Usar resultado previo si existe
+        if (lastAnalysisResult && timeRemaining > 5) {
+          provideContinuousGuidance(lastAnalysisResult);
         }
       }
+    } else {
+      // No hay movimiento, dar feedback positivo ocasional
+      const now = Date.now();
+      if (now - lastAnalysisTime.current > 15000) { // 15 segundos sin movimiento
+        speak("Todo tranquilo, el área se mantiene estable", 'low');
+        lastAnalysisTime.current = now; // Actualizar para evitar spam
+      }
+    }
     } catch (error) {
       console.warn('Error en detección de movimiento:', error);
     }
@@ -243,10 +279,10 @@ const VisionAssistant = () => {
     console.log('Iniciando detección de movimiento inteligente...');
     speak("Hola, soy tu asistente visual. Voy a estar contigo para guiarte de forma segura. Te avisaré sobre cualquier obstáculo o situación importante.", 'high');
 
-    // Detección de movimiento cada 100ms (muy rápido y eficiente)
+    // Detección de movimiento cada 500ms (menos frecuente)
     motionDetectionRef.current = setInterval(() => {
       captureFrameForMotion();
-    }, 100);
+    }, 500); // Reducido de 100ms a 500ms
   }, [captureFrameForMotion, speak]);
 
   // Stop real-time analysis
@@ -426,6 +462,7 @@ const VisionAssistant = () => {
       const result = await analyzeImage(imageData);
       
       setAnalysisResult(result);
+      setLastAnalysisResult(result); // Guardar para reutilizar
       
       // Comentario en tiempo real más natural
       const guidanceMessage = provideRealtimeGuidance(result);
@@ -449,18 +486,31 @@ const VisionAssistant = () => {
         result.confidence === 0 ||
         /Demasiadas solicitudes|No se pudo analizar|Error al conectar/i.test(result.message)
       ) {
-        console.log('Pausa breve por límite/ocupación del servicio (3s)');
-        toast.message('Servicio ocupado, reintentando en 3s');
+        console.log('Rate limit excedido, pausando análisis automático por 15 segundos...');
+        toast.warning('Servicio ocupado, pausando análisis automático temporalmente');
+        
+        // Usar resultado previo si existe
+        if (lastAnalysisResult) {
+          speak("Continúa con cuidado, basándome en lo que vi antes: " + lastAnalysisResult.message, 'medium');
+        } else {
+          speak("Pausa temporal del análisis. Camina con precaución hasta que se reactive", 'medium');
+        }
+        
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
         }
-        setIsRealTimeActive(true);
+        if (motionDetectionRef.current) {
+          clearInterval(motionDetectionRef.current);
+          motionDetectionRef.current = null;
+        }
+        
         setTimeout(() => {
           if (cameraActive) {
+            console.log('Reactivando análisis después de pausa por rate limit...');
             startMotionDetection();
           }
-        }, 5000);
+        }, 15000); // Pausa de 15 segundos
       }
       
       if (result.severity === 'danger') {
