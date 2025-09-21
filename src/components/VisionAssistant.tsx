@@ -152,10 +152,10 @@ const VisionAssistant = () => {
       
       speak("Cámara activada. Iniciando detección automática.");
       
-      // Auto-start real-time analysis immediately
-      setTimeout(() => {
-        startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
-      }, 1000);
+    // Auto-start real-time analysis immediately
+    setTimeout(() => {
+      startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
+    }, 500);
       
     } catch (error) {
       console.error('Error completo al acceder a cámara:', error);
@@ -217,8 +217,8 @@ const VisionAssistant = () => {
       const video = videoRef.current;
       const context = canvas.getContext('2d')!;
       
-      // Downscale to reduce payload and rate limits
-      const maxW = 640, maxH = 640;
+      // Downscale to reduce payload and improve speed
+      const maxW = 480, maxH = 480;
       const vw = video.videoWidth || 1280;
       const vh = video.videoHeight || 720;
       const ratio = Math.min(maxW / vw, maxH / vh);
@@ -228,7 +228,7 @@ const VisionAssistant = () => {
       canvas.height = th;
       context.drawImage(video, 0, 0, tw, th);
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.6);
+      const imageData = canvas.toDataURL('image/jpeg', 0.5);
       
       const result = await analyzeImage(imageData);
       
@@ -251,7 +251,7 @@ const VisionAssistant = () => {
           if (cameraActive && !intervalRef.current) {
             startRealTimeAnalysisRef.current && startRealTimeAnalysisRef.current();
           }
-        }, 3000);
+        }, 2000);
       }
       
       if (result.severity === 'danger') {
@@ -285,15 +285,15 @@ const VisionAssistant = () => {
       if (!isAnalyzing && cameraActive) {
         captureAndAnalyze();
       }
-    }, 1000);
+    }, 500);
     
-    // Análisis cada 5 segundos para evitar rate limits
+    // Análisis cada 1 segundo para detección rápida
     intervalRef.current = setInterval(() => {
       if (!isAnalyzing && cameraActive) {
         console.log('Ejecutando análisis automático en tiempo real...');
         captureAndAnalyze();
       }
-    }, 5000);
+    }, 1000);
   }, [captureAndAnalyze, isAnalyzing, speak, cameraActive]);
 
   // Mantener una referencia actualizada a la función
