@@ -33,6 +33,10 @@ const VisionAssistant = () => {
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [motionDetected, setMotionDetected] = useState(false);
+  const [isWalking, setIsWalking] = useState(false);
+  const [walkingIntensity, setWalkingIntensity] = useState(0);
+  const walkingHistoryRef = useRef<number[]>([]);
+  const lastWalkingAnnouncementRef = useRef<number>(0);
   const [analysisQueue, setAnalysisQueue] = useState<number[]>([]);
   const [lastAnalysisResult, setLastAnalysisResult] = useState<AnalysisResult | null>(null);
   
@@ -178,7 +182,7 @@ const VisionAssistant = () => {
     speak(randomMessage, 'low');
   };
 
-  // Detectar movimiento significativo en tiempo real (más estricto)
+  // Detectar movimiento significativo en tiempo real y patrones de caminar
   const detectMotion = useCallback((currentFrame: ImageData) => {
     if (!lastFrameRef.current) {
       lastFrameRef.current = currentFrame;
@@ -200,14 +204,61 @@ const VisionAssistant = () => {
     const avgDiff = totalDiff / (currentFrame.data.length / (sampleStep * 4));
     const isSignificantChange = avgDiff > threshold;
 
+    // Detectar patrones de caminar
+    walkingHistoryRef.current.push(avgDiff);
+    
+    // Mantener solo las últimas 10 mediciones (5 segundos de historial)
+    if (walkingHistoryRef.current.length > 10) {
+      walkingHistoryRef.current = walkingHistoryRef.current.slice(-10);
+    }
+
+    // Analizar si está caminando (necesitamos al menos 6 mediciones)
+    if (walkingHistoryRef.current.length >= 6) {
+      const recentMovement = walkingHistoryRef.current.slice(-6);
+      const avgRecentMovement = recentMovement.reduce((a, b) => a + b, 0) / recentMovement.length;
+      
+      // Detectar patrones rítmicos de caminar
+      const isWalkingPattern = avgRecentMovement > threshold * 0.7; // Umbral para caminar
+      const walkingIntensityLevel = Math.min(avgRecentMovement / threshold, 2); // 0-2 scale
+      
+      setIsWalking(isWalkingPattern);
+      setWalkingIntensity(walkingIntensityLevel);
+
+      // Anunciar estado de caminar cada 8 segundos
+      const now = Date.now();
+      if (isWalkingPattern && now - lastWalkingAnnouncementRef.current > 8000) {
+        const walkingMessages = [
+          "Estás en movimiento, caminando a buen ritmo",
+          "Detectando que estás caminando",
+          "Te mueves constantemente, mantén el paso",
+          "Estás en movimiento continuo"
+        ];
+        
+        if (walkingIntensityLevel > 1.5) {
+          walkingMessages.push("Estás caminando rápido, ten cuidado");
+          walkingMessages.push("Movimiento rápido detectado");
+        }
+        
+        const message = walkingMessages[Math.floor(Math.random() * walkingMessages.length)];
+        speak(message, 'medium');
+        lastWalkingAnnouncementRef.current = now;
+      } else if (!isWalkingPattern && walkingHistoryRef.current.some(val => val > threshold * 0.5)) {
+        // Si no está caminando pero hay algo de movimiento
+        if (now - lastWalkingAnnouncementRef.current > 10000) {
+          speak("Te has detenido o te mueves lentamente", 'low');
+          lastWalkingAnnouncementRef.current = now;
+        }
+      }
+    }
+
     // Solo actualizar frame de referencia si hay cambio significativo
     if (isSignificantChange) {
       lastFrameRef.current = currentFrame;
-      console.log(`Cambio significativo detectado: ${avgDiff.toFixed(2)}`);
+      console.log(`Cambio significativo detectado: ${avgDiff.toFixed(2)}, Caminando: ${isWalking}, Intensidad: ${walkingIntensity.toFixed(2)}`);
     }
 
     return isSignificantChange;
-  }, []);
+  }, [isWalking, walkingIntensity, speak]);
 
   // Capturar frame para detección de movimiento
   const captureFrameForMotion = useCallback(() => {
@@ -873,16 +924,32 @@ const VisionAssistant = () => {
           </div>
           
           {isRealTimeActive && (
-            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ${
-              motionDetected ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'
-            }`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${
-                motionDetected ? 'bg-orange-500 animate-pulse' : 'bg-green-500'
-              }`}></div>
-              <span>
-                {motionDetected ? 'Movimiento detectado' : 'Escena estable'}
-              </span>
-            </div>
+            <>
+              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ${
+                motionDetected ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'
+              }`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${
+                  motionDetected ? 'bg-orange-500 animate-pulse' : 'bg-green-500'
+                }`}></div>
+                <span>
+                  {motionDetected ? 'Movimiento detectado' : 'Escena estable'}
+                </span>
+              </div>
+              
+              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ml-2 ${
+                isWalking ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'
+              }`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${
+                  isWalking ? 'bg-purple-500 animate-bounce' : 'bg-gray-400'
+                }`}></div>
+                <span>
+                  {isWalking 
+                    ? `Caminando ${walkingIntensity > 1.5 ? '(Rápido)' : '(Normal)'}`
+                    : 'Parado/Lento'
+                  }
+                </span>
+              </div>
+            </>
           )}
         </div>
 
