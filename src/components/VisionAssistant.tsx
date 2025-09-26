@@ -169,17 +169,46 @@ const VisionAssistant = () => {
     return result.message;
   };
 
-  // Proporcionar guidance continua sin análisis de IA
-  const provideContinuousGuidance = (lastResult: AnalysisResult) => {
-    const continuousMessages = [
-      "Mantén el ritmo, todo sigue igual que antes",
-      "Continúa por el mismo camino, sin cambios",
-      "Situación estable, puedes seguir tranquilo",
-      "El área se mantiene como la dejamos, adelante"
-    ];
+  // Comparar resultados actuales vs anteriores para evitar repeticiones
+  const compareAnalysisResults = (currentResult: AnalysisResult, previousResult: AnalysisResult | null): boolean => {
+    if (!previousResult) return true; // Primer resultado, siempre anunciar
     
-    const randomMessage = continuousMessages[Math.floor(Math.random() * continuousMessages.length)];
-    speak(randomMessage, 'low');
+    // Extraer objetos mencionados en los mensajes
+    const extractObjects = (message: string): string[] => {
+      const objects: string[] = [];
+      const patterns = [
+        /una? (.+?)(?:\s+(?:en|con|de|cerca|lejos)|\s*[.,]|$)/gi,
+        /(?:veo|hay|detecta[do]?)\s+(.+?)(?:\s+(?:en|con|de|cerca|lejos)|\s*[.,]|$)/gi,
+        /(mesa|silla|persona|escalón|obstáculo|pared|puerta|auto|carro|bicicleta|animal|perro|gato|árbol|planta)s?/gi
+      ];
+      
+      patterns.forEach(pattern => {
+        let match;
+        while ((match = pattern.exec(message)) !== null) {
+          objects.push(match[1]?.toLowerCase().trim() || match[0].toLowerCase().trim());
+        }
+      });
+      
+      return objects.filter(obj => obj && obj.length > 2);
+    };
+    
+    const currentObjects = extractObjects(currentResult.message);
+    const previousObjects = extractObjects(previousResult.message);
+    
+    // Si hay objetos nuevos o diferentes, anunciar
+    const hasNewObjects = currentObjects.some(obj => 
+      !previousObjects.some(prevObj => 
+        prevObj.includes(obj) || obj.includes(prevObj)
+      )
+    );
+    
+    console.log('Comparación de objetos:', {
+      actuales: currentObjects,
+      anteriores: previousObjects,
+      objetosNuevos: hasNewObjects
+    });
+    
+    return hasNewObjects || currentObjects.length === 0; // Anunciar si hay objetos nuevos o área despejada
   };
 
   // Detectar movimiento significativo en tiempo real y patrones de caminar
@@ -545,23 +574,30 @@ const VisionAssistant = () => {
       
       const result = await analyzeImage(imageData);
       
+      // Comparar con resultado anterior para evitar repeticiones de objetos que ya no están
+      const shouldAnnounce = compareAnalysisResults(result, lastAnalysisResult);
+      
       setAnalysisResult(result);
-      setLastAnalysisResult(result); // Guardar para reutilizar
+      setLastAnalysisResult(result);
       
-      // Usar el mensaje específico de la IA con orientación natural
-      const guidanceMessage = provideRealtimeGuidance(result);
-      
-      // Si hay peligro, hablar inmediatamente con prioridad alta
-      if (result.severity === 'danger') {
-        speak(guidanceMessage, 'high');
-        toast.error(result.message);
-      } else if (result.severity === 'warning') {
-        speak(guidanceMessage, 'medium');
-        toast.warning(result.message);
+      if (shouldAnnounce) {
+        // Usar el mensaje específico de la IA con orientación natural
+        const guidanceMessage = provideRealtimeGuidance(result);
+        
+        // Si hay peligro, hablar inmediatamente con prioridad alta
+        if (result.severity === 'danger') {
+          speak(guidanceMessage, 'high');
+          toast.error(result.message);
+        } else if (result.severity === 'warning') {
+          speak(guidanceMessage, 'medium');
+          toast.warning(result.message);
+        } else {
+          // Para situaciones normales, usar el mensaje específico de objetos
+          speak(guidanceMessage, 'low');
+          toast.success(result.message);
+        }
       } else {
-        // Para situaciones normales, usar el mensaje específico de objetos
-        speak(guidanceMessage, 'low');
-        toast.success(result.message);
+        console.log('Sin cambios significativos en objetos detectados, no anunciando');
       }
       
       // If rate limited or transient error, pause and resume automatically
