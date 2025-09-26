@@ -25,6 +25,8 @@ interface MotionDetection {
 }
 
 const VisionAssistant = () => {
+  console.log('🚀 VisionAssistant: Componente iniciando...');
+  
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isRealTimeActive, setIsRealTimeActive] = useState(false);
@@ -47,6 +49,7 @@ const VisionAssistant = () => {
   const significantChangeThreshold = useRef<number>(50); // Umbral más alto para cambios significativos
 
   const { isAndroid, isMobile, isNative } = usePlatform();
+  console.log('📱 Platform info:', { isAndroid, isMobile, isNative });
 
   // Voice commands handler
   const handleVoiceCommand = useCallback((command: string) => {
@@ -264,8 +267,14 @@ const VisionAssistant = () => {
 
   // Análisis inteligente solo cuando hay cambios
   const triggerSmartAnalysis = useCallback(async () => {
-    if (processingAnalysis.current || !videoRef.current || !canvasRef.current) return;
+    console.log('🎯 triggerSmartAnalysis llamado - processingAnalysis:', processingAnalysis.current, 'video disponible?:', !!videoRef.current);
+    
+    if (processingAnalysis.current || !videoRef.current || !canvasRef.current) {
+      console.log('⚠️ Abortando triggerSmartAnalysis - ya procesando o recursos no disponibles');
+      return;
+    }
 
+    console.log('🚀 Ejecutando análisis inteligente...');
     processingAnalysis.current = true;
     lastAnalysisTime.current = Date.now();
 
@@ -273,24 +282,33 @@ const VisionAssistant = () => {
       await captureAndAnalyze();
     } finally {
       processingAnalysis.current = false;
+      console.log('✅ triggerSmartAnalysis completado');
     }
   }, []);
 
   // Iniciar detección de movimiento en tiempo real
   const startMotionDetection = useCallback(() => {
-    if (motionDetectionRef.current) return;
+    console.log('🔍 startMotionDetection llamado - ya existe intervalo?:', !!motionDetectionRef.current);
+    
+    if (motionDetectionRef.current) {
+      console.log('⚠️ Ya existe detección de movimiento, abortando');
+      return;
+    }
 
-    console.log('Iniciando detección automática de objetos con IA...');
+    console.log('🎯 Iniciando detección automática de objetos con IA...');
     speak("Hola, soy tu asistente visual inteligente. Voy a analizar automáticamente los objetos que encuentres y te guiaré de forma segura en tiempo real.", 'high');
 
     // Detección de movimiento cada 500ms + análisis automático de objetos
     motionDetectionRef.current = setInterval(() => {
+      console.log('⏱️ Ejecutando captureFrameForMotion...');
       captureFrameForMotion();
     }, 500);
+    
+    console.log('✅ Detección de movimiento configurada con intervalo de 500ms');
 
     // ANÁLISIS INICIAL AUTOMÁTICO después de 2 segundos
     setTimeout(() => {
-      console.log('Iniciando primer análisis automático de objetos...');
+      console.log('🚀 Iniciando primer análisis automático de objetos...');
       triggerSmartAnalysis();
     }, 2000);
   }, [captureFrameForMotion, speak, triggerSmartAnalysis]);
@@ -418,10 +436,12 @@ const VisionAssistant = () => {
 
   // Handle camera activation based on platform
   const handleCameraActivation = useCallback(() => {
-    console.log('handleCameraActivation - Plataforma:', { isAndroid, isNative });
+    console.log('🎥 handleCameraActivation llamado - Plataforma:', { isAndroid, isNative, isMobile });
     if (isMobile) {
+      console.log('📱 Es móvil - mostrando dialog de permisos');
       setShowPermissionDialog(true);
     } else {
+      console.log('💻 Es desktop - iniciando cámara directamente');
       startCamera();
     }
   }, [isMobile, startCamera]);
@@ -438,17 +458,20 @@ const VisionAssistant = () => {
 
   // Capture image and analyze
   const captureAndAnalyze = useCallback(async () => {
+    console.log('📸 captureAndAnalyze llamado - video disponible?:', !!videoRef.current, 'canvas disponible?:', !!canvasRef.current);
+    
     if (!videoRef.current || !canvasRef.current) {
-      console.warn('Video o canvas no disponible, pero continuando...');
+      console.warn('⚠️ Video o canvas no disponible, pero continuando...');
       return;
     }
 
     // Verificar que el video esté realmente reproduciendo
     if (videoRef.current.readyState < 2) {
-      console.warn('Video no está listo, esperando...');
+      console.warn('⚠️ Video no está listo, esperando... readyState:', videoRef.current.readyState);
       return;
     }
 
+    console.log('✅ Iniciando análisis de imagen...');
     setIsAnalyzing(true);
     
     try {
@@ -542,15 +565,20 @@ const VisionAssistant = () => {
 
   // Start real-time analysis with smart detection
   const startRealTimeAnalysis = useCallback(() => {
-    if (motionDetectionRef.current || !cameraActive) return;
+    console.log('🔄 startRealTimeAnalysis llamado - cameraActive:', cameraActive, 'motionDetectionRef:', !!motionDetectionRef.current);
     
-    console.log('Iniciando sistema de detección inteligente de objetos...');
+    if (motionDetectionRef.current || !cameraActive) {
+      console.log('⚠️ Abortando startRealTimeAnalysis - ya en ejecución o cámara inactiva');
+      return;
+    }
+    
+    console.log('✅ Iniciando sistema de detección inteligente de objetos...');
     setIsRealTimeActive(true);
     startMotionDetection();
     
     // ANÁLISIS INMEDIATO al activar para detectar objetos presentes
     setTimeout(() => {
-      console.log('Análisis inicial para detectar objetos presentes...');
+      console.log('⏰ Ejecutando análisis inicial para detectar objetos presentes...');
       captureAndAnalyze();
     }, 1000);
   }, [startMotionDetection, cameraActive, captureAndAnalyze]);
