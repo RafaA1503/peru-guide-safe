@@ -231,29 +231,30 @@ const VisionAssistant = () => {
       setMotionDetected(hasMovement);
 
     if (hasMovement) {
-      // Solo analizar si hay movimiento Y han pasado al menos 10 segundos
+      // ANÁLISIS MÁS FRECUENTE para detectar objetos automáticamente
       const now = Date.now();
-      const minIntervalBetweenAnalysis = 10000; // 10 segundos mínimo
+      const minIntervalBetweenAnalysis = 5000; // REDUCIDO A 5 segundos para detectar objetos
       
       if (now - lastAnalysisTime.current > minIntervalBetweenAnalysis && !processingAnalysis.current) {
-        console.log('Movimiento significativo detectado, iniciando análisis...');
+        console.log('Ejecutando análisis automático de objetos...');
         triggerSmartAnalysis();
       } else {
-        // Dar feedback sin análisis de IA
+        // Dar feedback sin análisis de IA solo si necesario
         const timeRemaining = Math.ceil((minIntervalBetweenAnalysis - (now - lastAnalysisTime.current)) / 1000);
-        console.log(`Movimiento detectado, pero esperando ${timeRemaining}s más...`);
+        console.log(`Movimiento detectado, análisis en ${timeRemaining}s...`);
         
-        // Usar resultado previo si existe
-        if (lastAnalysisResult && timeRemaining > 5) {
-          provideContinuousGuidance(lastAnalysisResult);
+        // Usar resultado previo si existe y ha pasado tiempo suficiente
+        if (lastAnalysisResult && now - lastAnalysisTime.current > 3000) {
+          const continuousMessage = makeConversational(lastAnalysisResult.message);
+          speak(continuousMessage, 'low');
         }
       }
     } else {
-      // No hay movimiento, dar feedback positivo ocasional
+      // SIN MOVIMIENTO - análisis periódico para detectar objetos estáticos
       const now = Date.now();
-      if (now - lastAnalysisTime.current > 15000) { // 15 segundos sin movimiento
-        speak("Todo tranquilo, el área se mantiene estable", 'low');
-        lastAnalysisTime.current = now; // Actualizar para evitar spam
+      if (now - lastAnalysisTime.current > 8000) { // 8 segundos sin movimiento, hacer análisis
+        console.log('Analizando objetos estáticos en el área...');
+        triggerSmartAnalysis();
       }
     }
     } catch (error) {
@@ -279,14 +280,20 @@ const VisionAssistant = () => {
   const startMotionDetection = useCallback(() => {
     if (motionDetectionRef.current) return;
 
-    console.log('Iniciando detección de movimiento inteligente...');
-    speak("Hola, soy tu asistente visual. Voy a estar contigo para guiarte de forma segura. Te avisaré sobre cualquier obstáculo o situación importante.", 'high');
+    console.log('Iniciando detección automática de objetos con IA...');
+    speak("Hola, soy tu asistente visual inteligente. Voy a analizar automáticamente los objetos que encuentres y te guiaré de forma segura en tiempo real.", 'high');
 
-    // Detección de movimiento cada 500ms (menos frecuente)
+    // Detección de movimiento cada 500ms + análisis automático de objetos
     motionDetectionRef.current = setInterval(() => {
       captureFrameForMotion();
-    }, 500); // Reducido de 100ms a 500ms
-  }, [captureFrameForMotion, speak]);
+    }, 500);
+
+    // ANÁLISIS INICIAL AUTOMÁTICO después de 2 segundos
+    setTimeout(() => {
+      console.log('Iniciando primer análisis automático de objetos...');
+      triggerSmartAnalysis();
+    }, 2000);
+  }, [captureFrameForMotion, speak, triggerSmartAnalysis]);
 
   // Stop real-time analysis
   const stopRealTimeAnalysis = useCallback(() => {
@@ -537,10 +544,16 @@ const VisionAssistant = () => {
   const startRealTimeAnalysis = useCallback(() => {
     if (motionDetectionRef.current || !cameraActive) return;
     
-    console.log('Iniciando sistema de detección inteligente...');
+    console.log('Iniciando sistema de detección inteligente de objetos...');
     setIsRealTimeActive(true);
     startMotionDetection();
-  }, [startMotionDetection, cameraActive]);
+    
+    // ANÁLISIS INMEDIATO al activar para detectar objetos presentes
+    setTimeout(() => {
+      console.log('Análisis inicial para detectar objetos presentes...');
+      captureAndAnalyze();
+    }, 1000);
+  }, [startMotionDetection, cameraActive, captureAndAnalyze]);
 
   // Mantener una referencia actualizada a la función
   useEffect(() => {

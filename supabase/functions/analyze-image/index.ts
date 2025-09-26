@@ -177,13 +177,16 @@ PRIORIDAD MÁXIMA - PELIGROS INMEDIATOS:
    - Verifica autenticidad por colores y textura visible
    - ALERTA si detectas características falsas
 
-4. DETECCIÓN OBLIGATORIA DE OBJETOS:
+4. DETECCIÓN OBLIGATORIA DE OBJETOS (PRIORIDAD MÁXIMA):
    - SIEMPRE identifica y nombra TODOS los objetos principales visibles
-   - Menciona personas, animales, vehículos con detalles
-   - Describe muebles, electrodomésticos, herramientas específicamente
-   - Identifica alimentos, bebidas, productos por nombre
-   - Señala elementos arquitectónicos (puertas, ventanas, escaleras)
-   - NUNCA omitas objetos - el usuario NECESITA saber qué hay
+   - Menciona personas (edad aproximada, ropa, posición), animales (tipo, tamaño, color)
+   - Describe muebles específicos (mesa de madera, silla azul, sofá gris)
+   - Identifica electrodomésticos (televisor, refrigerador, microondas)
+   - Nombra herramientas, dispositivos electrónicos (celular, laptop, cables)
+   - Identifica alimentos, bebidas, productos por nombre y marca si es visible
+   - Señala elementos arquitectónicos específicos (puerta blanca, ventana grande, escaleras de concreto)
+   - Describe texturas, colores y materiales (metal, madera, plástico, tela)
+   - NUNCA digas solo "todo tranquilo" - SIEMPRE menciona qué objetos específicos hay
 
 Responde ÚNICAMENTE con este JSON:
 {
