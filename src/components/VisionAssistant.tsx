@@ -10,6 +10,7 @@ import CameraPermissionDialog from './CameraPermissionDialog';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
 import { Capacitor } from '@capacitor/core';
+import { TextToSpeech } from '@capacitor-community/text-to-speech';
 
 interface AnalysisResult {
   type: 'obstacle' | 'currency' | 'general' | 'objects';
@@ -79,25 +80,60 @@ const VisionAssistant = () => {
 
   const { isListening, startListening, isSupported } = useVoiceRecognition(handleVoiceCommand);
 
-  // Text-to-speech function más natural y conversacional
-  const speak = useCallback((text: string, priority: 'high' | 'medium' | 'low' = 'medium') => {
-    if ('speechSynthesis' in window) {
-      // Cancelar speech anterior si es de prioridad alta
-      if (priority === 'high') {
-        speechSynthesis.cancel();
+  // Text-to-speech function más natural y conversacional que funciona en móvil nativo
+  const speak = useCallback(async (text: string, priority: 'high' | 'medium' | 'low' = 'medium') => {
+    console.log('🗣️ Intentando hablar:', text);
+    
+    // Hacer el texto más conversacional
+    const conversationalText = makeConversational(text);
+    
+    try {
+      // Si es aplicación nativa (APK/iOS), usar Capacitor Text-to-Speech
+      if (Capacitor.isNativePlatform()) {
+        console.log('📱 Usando Capacitor TextToSpeech para nativo');
+        
+        // Detener speech anterior si es prioridad alta
+        if (priority === 'high') {
+          await TextToSpeech.stop();
+        }
+        
+        await TextToSpeech.speak({
+          text: conversationalText,
+          lang: 'es-ES',
+          rate: 1.0,
+          pitch: 1.0,
+          volume: 0.8,
+          category: 'ambient'
+        });
+        
+        console.log('✅ TextToSpeech completado');
+      } 
+      // Si es web, usar Web Speech API
+      else if ('speechSynthesis' in window) {
+        console.log('🌐 Usando Web Speech API para navegador');
+        
+        // Cancelar speech anterior si es de prioridad alta
+        if (priority === 'high') {
+          speechSynthesis.cancel();
+        }
+        
+        const utterance = new SpeechSynthesisUtterance(conversationalText);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 0.8;
+        
+        speechSynthesis.speak(utterance);
+        console.log('✅ Web Speech completado');
+      } else {
+        console.warn('❌ No hay soporte para speech en este dispositivo');
+        // Fallback: mostrar mensaje en toast
+        toast.info(conversationalText);
       }
-      
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'es-ES';
-      utterance.rate = 1.0; // Velocidad natural
-      utterance.pitch = 1.0;
-      utterance.volume = 0.8;
-      
-      // Hacer más conversacional
-      const conversationalText = makeConversational(text);
-      utterance.text = conversationalText;
-      
-      speechSynthesis.speak(utterance);
+    } catch (error) {
+      console.error('❌ Error en text-to-speech:', error);
+      // Fallback: mostrar mensaje en toast si falla
+      toast.info(conversationalText);
     }
   }, []);
 
