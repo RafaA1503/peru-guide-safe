@@ -12,7 +12,7 @@ import { useVoiceRecognition } from '@/hooks/useVoiceRecognition';
 import { Capacitor } from '@capacitor/core';
 
 interface AnalysisResult {
-  type: 'obstacle' | 'currency' | 'general';
+  type: 'obstacle' | 'currency' | 'general' | 'objects';
   severity: 'safe' | 'warning' | 'danger';
   message: string;
   confidence: number;
@@ -118,28 +118,31 @@ const VisionAssistant = () => {
 
   // Proporcionar orientación en tiempo real como un guía personal
   const provideRealtimeGuidance = (result: AnalysisResult) => {
-    const guidance = [];
-    
+    // Usar directamente el mensaje de la IA que ya es específico
     if (result.type === 'obstacle') {
       if (result.severity === 'danger') {
-        guidance.push('¡Alto! Hay un obstáculo peligroso adelante.');
+        return `¡CUIDADO! ${result.message}. Detente inmediatamente.`;
       } else if (result.severity === 'warning') {
-        guidance.push('Cuidado, hay algo en tu camino que debes esquivar.');
+        return `Atención, ${result.message}. Camina con precaución.`;
       }
     } else if (result.type === 'currency') {
-      guidance.push('He identificado un billete. ¿Quieres que lo verifique?');
-    } else {
-      // Análisis general del entorno
-      if (result.message.toLowerCase().includes('despejado')) {
-        guidance.push('El camino se ve bien. Puedes continuar con confianza.');
-      } else if (result.message.toLowerCase().includes('persona')) {
-        guidance.push('Hay personas cerca. Mantén tu ritmo normal.');
-      } else if (result.message.toLowerCase().includes('vehículo') || result.message.toLowerCase().includes('auto')) {
-        guidance.push('Cuidado, hay vehículos en el área.');
+      return `${result.message}. Te ayudo a verificarlo.`;
+    } else if (result.type === 'objects' || result.type === 'general') {
+      // Para análisis de objetos, usar el mensaje específico de la IA
+      if (result.message.toLowerCase().includes('veo') ||
+          result.message.toLowerCase().includes('detecta') ||
+          result.message.toLowerCase().includes('hay')) {
+        return `${result.message}. Mantente alerta mientras caminas.`;
+      } else if (result.message.toLowerCase().includes('despejado') || 
+                 result.message.toLowerCase().includes('libre')) {
+        return `${result.message}. Continúa tranquilo.`;
+      } else {
+        return `${result.message}. Ten cuidado con estos elementos.`;
       }
     }
     
-    return guidance.join(' ');
+    // Fallback: usar el mensaje tal como viene de la IA
+    return result.message;
   };
 
   // Mensajes positivos para situaciones seguras
@@ -464,20 +467,19 @@ const VisionAssistant = () => {
       setAnalysisResult(result);
       setLastAnalysisResult(result); // Guardar para reutilizar
       
-      // Comentario en tiempo real más natural
+      // Usar el mensaje específico de la IA con orientación natural
       const guidanceMessage = provideRealtimeGuidance(result);
       
       // Si hay peligro, hablar inmediatamente con prioridad alta
       if (result.severity === 'danger') {
-        speak(result.message, 'high');
+        speak(guidanceMessage, 'high');
         toast.error(result.message);
       } else if (result.severity === 'warning') {
-        speak(result.message, 'medium');
+        speak(guidanceMessage, 'medium');
         toast.warning(result.message);
       } else {
-        // Para situaciones seguras, dar orientación positiva
-        const positiveMessage = getPositiveGuidance(result);
-        speak(positiveMessage, 'low');
+        // Para situaciones normales, usar el mensaje específico de objetos
+        speak(guidanceMessage, 'low');
         toast.success(result.message);
       }
       
@@ -653,8 +655,6 @@ const VisionAssistant = () => {
         confidence: 0.6,
       };
     }
-  };
-
   };
 
   useEffect(() => {

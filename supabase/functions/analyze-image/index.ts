@@ -154,6 +154,8 @@ async function performOpenAIAnalysis(imageData: string): Promise<any> {
 
   const unifiedPrompt = `Eres un asistente visual para personas con discapacidad visual. Analiza esta imagen EN TIEMPO REAL para detectar:
 
+INSTRUCCIÓN CRÍTICA: SIEMPRE menciona OBJETOS ESPECÍFICOS que veas. NUNCA digas solo "todo tranquilo" o "área estable".
+
 PRIORIDAD MÁXIMA - PELIGROS INMEDIATOS:
 1. OBSTÁCULOS PELIGROSOS:
    - Escalones hacia abajo (PELIGRO ALTO)
@@ -175,33 +177,41 @@ PRIORIDAD MÁXIMA - PELIGROS INMEDIATOS:
    - Verifica autenticidad por colores y textura visible
    - ALERTA si detectas características falsas
 
-4. DETECCIÓN GENERAL DE OBJETOS:
-   - Identifica y nombra los objetos principales visibles
-   - Menciona personas, animales, vehículos
-   - Describe muebles, electrodomésticos, herramientas
-   - Identifica alimentos, bebidas, productos
+4. DETECCIÓN OBLIGATORIA DE OBJETOS:
+   - SIEMPRE identifica y nombra TODOS los objetos principales visibles
+   - Menciona personas, animales, vehículos con detalles
+   - Describe muebles, electrodomésticos, herramientas específicamente
+   - Identifica alimentos, bebidas, productos por nombre
    - Señala elementos arquitectónicos (puertas, ventanas, escaleras)
+   - NUNCA omitas objetos - el usuario NECESITA saber qué hay
 
 Responde ÚNICAMENTE con este JSON:
 {
   "type": "obstacle|currency|general|objects",
   "severity": "safe|warning|danger", 
-  "message": "Descripción CLARA del peligro, objetos o situación",
+  "message": "Descripción ESPECÍFICA de lo que ves - SIEMPRE menciona objetos específicos por nombre",
   "confidence": número 0.7-1.0
 }
 
 CRITERIOS DE SEVERIDAD:
 - "danger": Escalones, hoyos, tráfico, objetos punzantes, billetes falsos
-- "warning": Obstáculos menores, aglomeraciones, billetes dudosos
-- "safe": Camino despejado, billetes auténticos, entorno normal
+- "warning": Obstáculos menores, aglomeraciones, billetes dudosos  
+- "safe": Camino despejado + MENCIÓN ESPECÍFICA de objetos presentes, billetes auténticos
 
-EJEMPLOS DE MENSAJES:
-- "PELIGRO: Escalón de 20cm hacia abajo"
-- "CUIDADO: Poste a 1 metro adelante"  
-- "Billete de 50 soles auténtico"
-- "Veo una mesa de madera, dos sillas y una taza sobre ella"
-- "Hay una persona caminando, un perro pequeño y un auto estacionado"
-- "Detecta: celular, llaves, cartera y una botella de agua"`;
+EJEMPLOS CORRECTOS DE MENSAJES:
+- "PELIGRO: Escalón de 20cm hacia abajo cerca de una puerta de metal"
+- "CUIDADO: Poste de luz a 1 metro adelante, hay una bicicleta apoyada"  
+- "Billete de 50 soles auténtico sobre una mesa de madera"
+- "Veo una mesa de madera con cajones, dos sillas azules y una taza blanca encima"
+- "Hay una persona con camisa roja caminando, un perro dorado pequeño y un auto Toyota azul estacionado"
+- "Detecto: un celular negro, llaves plateadas, una cartera de cuero marrón y una botella de agua transparente"
+- "Una puerta blanca abierta, una maceta grande con plantas verdes y cables negros en el suelo de cemento"
+- "Tres personas conversando junto a un poste, un niño con bicicleta roja y un gato gris bajo un árbol"
+
+EJEMPLO INCORRECTO: "Todo tranquilo, área estable" ❌
+EJEMPLO CORRECTO: "Área segura con una banca de metal, dos árboles grandes y el suelo de concreto despejado" ✅
+
+RECUERDA: El usuario ES CIEGO y NECESITA saber exactamente qué objetos están presentes. NUNCA seas genérico.`;
 
   console.log('Enviando solicitud a OpenAI API con gpt-4o-mini...');
   
