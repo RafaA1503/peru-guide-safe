@@ -14,63 +14,7 @@ export type Database = {
   }
   public: {
     Tables: {
-      captured_images: {
-        Row: {
-          confidence: number
-          created_at: string
-          detections: string[]
-          id: string
-          is_protected: boolean
-          timestamp: string
-          url: string
-          user_id: string | null
-        }
-        Insert: {
-          confidence?: number
-          created_at?: string
-          detections?: string[]
-          id: string
-          is_protected?: boolean
-          timestamp?: string
-          url: string
-          user_id?: string | null
-        }
-        Update: {
-          confidence?: number
-          created_at?: string
-          detections?: string[]
-          id?: string
-          is_protected?: boolean
-          timestamp?: string
-          url?: string
-          user_id?: string | null
-        }
-        Relationships: []
-      }
-      profiles: {
-        Row: {
-          created_at: string
-          email: string | null
-          full_name: string | null
-          id: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          email?: string | null
-          full_name?: string | null
-          id: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          email?: string | null
-          full_name?: string | null
-          id?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Views: {
       [_ in never]: never
